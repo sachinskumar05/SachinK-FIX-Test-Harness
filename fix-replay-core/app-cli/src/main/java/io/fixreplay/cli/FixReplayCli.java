@@ -321,6 +321,7 @@ public final class FixReplayCli implements Callable<Integer> {
                 ScenarioConfig scenarioConfig = ScenarioConfig.load(scenarioPath);
                 String effectiveTransportClassName = resolveTransportClassName(transportClassName, startSimulator, scenarioConfig);
                 Map<String, String> mergedTransportProperties = mergeTransportProperties(transportConfigFile, transportProperties);
+                mergedTransportProperties = applyScenarioInitiatorTransportDefaults(scenarioConfig, mergedTransportProperties);
                 simulatorHandle = maybeStartSimulator(
                     scenarioConfig,
                     mergedTransportProperties,
@@ -591,6 +592,36 @@ public final class FixReplayCli implements Callable<Integer> {
         merged.putIfAbsent("artio.exitHost", connectHostFromListenHost(simulatorConfig.exit().listenHost()));
         merged.putIfAbsent("artio.exitPort", Integer.toString(simulatorConfig.exit().listenPort()));
         return Map.copyOf(merged);
+    }
+
+    static Map<String, String> applyScenarioInitiatorTransportDefaults(
+        ScenarioConfig scenarioConfig,
+        Map<String, String> transportProperties
+    ) {
+        Objects.requireNonNull(scenarioConfig, "scenarioConfig");
+        Objects.requireNonNull(transportProperties, "transportProperties");
+
+        ScenarioConfig.SessionIdentity entry = scenarioConfig.sessions().entry();
+        ScenarioConfig.SessionIdentity exit = scenarioConfig.sessions().exit();
+
+        Map<String, String> merged = new LinkedHashMap<>(transportProperties);
+        putIfNonBlankAbsent(merged, "artio.host", entry.host());
+        putIfPositivePortAbsent(merged, "artio.port", entry.port());
+        putIfNonBlankAbsent(merged, "artio.exitHost", exit.host());
+        putIfPositivePortAbsent(merged, "artio.exitPort", exit.port());
+        return Map.copyOf(merged);
+    }
+
+    private static void putIfNonBlankAbsent(Map<String, String> target, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            target.putIfAbsent(key, value.trim());
+        }
+    }
+
+    private static void putIfPositivePortAbsent(Map<String, String> target, String key, Integer value) {
+        if (value != null && value > 0) {
+            target.putIfAbsent(key, Integer.toString(value));
+        }
     }
 
     private static EmbeddedSimulatorHandle maybeStartSimulator(

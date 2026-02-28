@@ -130,4 +130,35 @@ class ScenarioConfigTest {
         assertEquals("ENTRY_A", config.sessions().entry().senderCompId());
         assertEquals("EXIT_B", config.sessions().exit().targetCompId());
     }
+
+    @Test
+    void parsesSessionInitiatorHostAndPort(@TempDir Path tempDir) throws IOException {
+        Files.createDirectory(tempDir.resolve("input"));
+        Files.createDirectory(tempDir.resolve("expected"));
+        Path configFile = tempDir.resolve("scenario.yaml");
+
+        String yaml = """
+            inputFolder: input
+            expectedFolder: expected
+            sessions:
+              entry:
+                sender_comp_id: ENTRY
+                target_comp_id: QFIX
+                host: 127.0.0.1
+                port: 11001
+              exit:
+                sender_comp_id: EXIT
+                target_comp_id: QFIX
+                connect_host: localhost
+                connect_port: 11002
+            """;
+        Files.writeString(configFile, yaml);
+
+        ScenarioConfig config = ScenarioConfig.load(configFile);
+
+        assertEquals("127.0.0.1", config.sessions().entry().host());
+        assertEquals(11001, config.sessions().entry().port());
+        assertEquals("localhost", config.sessions().exit().host());
+        assertEquals(11002, config.sessions().exit().port());
+    }
 }

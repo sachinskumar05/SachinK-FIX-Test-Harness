@@ -1,0 +1,64 @@
+input_folder: "./input"
+expected_folder: "./expected"
+
+io:
+  mode: "online"
+
+# Replayer-side FIX identities + initiator connect endpoints.
+# These host/port values are consumed by app-cli run-online defaults
+# (mapped to artio.host/artio.port and artio.exitHost/artio.exitPort).
+sessions:
+  entry:
+    sender_comp_id: "ENTRY"
+    target_comp_id: "QFIX"
+    connect_host: "127.0.0.1"
+    connect_port: 11001
+  exit:
+    sender_comp_id: "EXIT"
+    target_comp_id: "QFIX"
+    connect_host: "127.0.0.1"
+    connect_port: 11002
+
+compare:
+  excludeTimeLikeTags: true
+  defaultExcludeTags: [49, 56]
+
+simulator:
+  provider: "artio"
+  enabled: true
+  begin_string: "FIX.4.2"
+
+  # Simulator-side sessions (acceptors)
+  entry:
+    listen_host: "127.0.0.1"
+    listen_port: 11001
+    local_comp_id: "QFIX"
+    remote_comp_id: "ENTRY"
+
+  exit:
+    listen_host: "127.0.0.1"
+    listen_port: 11002
+    local_comp_id: "QFIX"
+    remote_comp_id: "EXIT"
+
+  routing:
+    enabled_msg_types: ["D", "G", "F", "8", "3", "j"]
+    drop_admin_messages: true
+    fail_if_exit_not_logged_on: true
+    artificial_delay_ms: 0
+    max_queue_depth: 50000
+
+  mutation:
+    enabled: false
+    strict_mode: false
+
+  observability:
+    log_inbound_outbound: true
+    log_fix_payloads: false
+
+  shutdown:
+    graceful_timeout_ms: 5000
+
+# NOTE:
+# Current runner expects input/expected filenames to share the same <SENDER>_<TARGET> stem.
+# Example pair: ENTRY_QFIX.in + ENTRY_QFIX.out OR EXIT_QFIX.in + EXIT_QFIX.out.

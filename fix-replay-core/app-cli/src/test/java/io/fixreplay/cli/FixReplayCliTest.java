@@ -202,6 +202,55 @@ class FixReplayCliTest {
     }
 
     @Test
+    void runOnlineUsesInitiatorHostAndPortFromScenarioWhenNotProvided(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+
+        Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
+        Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "sessions:",
+                "  entry:",
+                "    sender_comp_id: BUY",
+                "    target_comp_id: SELL",
+                "    host: 127.0.0.1",
+                "    port: 11001",
+                "  exit:",
+                "    sender_comp_id: SELL",
+                "    target_comp_id: BUY",
+                "    host: 127.0.0.1",
+                "    port: 11002"
+            ) + "\n"
+        );
+
+        ScriptedTransport.reset(List.of(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=099|", '|')));
+
+        int exitCode = FixReplayCli.newCommandLine().execute(
+            "run-online",
+            "--scenario",
+            scenario.toString(),
+            "--transport-class",
+            ScriptedTransport.class.getName(),
+            "--receive-timeout-ms",
+            "500",
+            "--queue-capacity",
+            "8"
+        );
+
+        assertEquals(0, exitCode);
+        assertEquals("127.0.0.1", ScriptedTransport.lastProperties.get("artio.host"));
+        assertEquals("11001", ScriptedTransport.lastProperties.get("artio.port"));
+        assertEquals("127.0.0.1", ScriptedTransport.lastProperties.get("artio.exitHost"));
+        assertEquals("11002", ScriptedTransport.lastProperties.get("artio.exitPort"));
+    }
+
+    @Test
     void runOnlineWithStartSimulatorSkipsWhenSimulatorDisabled(@TempDir Path tempDir) throws IOException {
         Path input = Files.createDirectory(tempDir.resolve("input"));
         Path expected = Files.createDirectory(tempDir.resolve("expected"));
@@ -291,6 +340,32 @@ class FixReplayCliTest {
         );
         assertEquals("example.com", overridden.get("artio.host"));
         assertEquals("7999", overridden.get("artio.port"));
+    }
+
+    @Test
+    void applyScenarioInitiatorTransportDefaultsUsesSessionEndpoints() {
+        ScenarioConfig scenario = ScenarioConfig.builder()
+            .sessions(
+                new ScenarioConfig.Sessions(
+                    new ScenarioConfig.SessionIdentity("ENTRY", "QFIX", "127.0.0.1", 7101),
+                    new ScenarioConfig.SessionIdentity("EXIT", "QFIX", "127.0.0.1", 7102)
+                )
+            )
+            .build();
+
+        Map<String, String> defaults = FixReplayCli.applyScenarioInitiatorTransportDefaults(scenario, Map.of("custom", "v"));
+        assertEquals("127.0.0.1", defaults.get("artio.host"));
+        assertEquals("7101", defaults.get("artio.port"));
+        assertEquals("127.0.0.1", defaults.get("artio.exitHost"));
+        assertEquals("7102", defaults.get("artio.exitPort"));
+        assertEquals("v", defaults.get("custom"));
+
+        Map<String, String> overridden = FixReplayCli.applyScenarioInitiatorTransportDefaults(
+            scenario,
+            Map.of("artio.host", "example.com", "artio.port", "9999")
+        );
+        assertEquals("example.com", overridden.get("artio.host"));
+        assertEquals("9999", overridden.get("artio.port"));
     }
 
     @Test

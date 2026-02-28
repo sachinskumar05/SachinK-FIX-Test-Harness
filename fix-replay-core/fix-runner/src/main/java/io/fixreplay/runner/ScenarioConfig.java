@@ -263,10 +263,20 @@ public final class ScenarioConfig {
         }
         SessionIdentity entry = spec.entry == null
             ? SessionIdentity.empty()
-            : new SessionIdentity(trimToNull(spec.entry.senderCompId), trimToNull(spec.entry.targetCompId));
+            : new SessionIdentity(
+                trimToNull(spec.entry.senderCompId),
+                trimToNull(spec.entry.targetCompId),
+                trimToNull(spec.entry.host),
+                spec.entry.port
+            );
         SessionIdentity exit = spec.exit == null
             ? SessionIdentity.empty()
-            : new SessionIdentity(trimToNull(spec.exit.senderCompId), trimToNull(spec.exit.targetCompId));
+            : new SessionIdentity(
+                trimToNull(spec.exit.senderCompId),
+                trimToNull(spec.exit.targetCompId),
+                trimToNull(spec.exit.host),
+                spec.exit.port
+            );
         return new Sessions(entry, exit);
     }
 
@@ -504,9 +514,9 @@ public final class ScenarioConfig {
         }
     }
 
-    public record SessionIdentity(String senderCompId, String targetCompId) {
+    public record SessionIdentity(String senderCompId, String targetCompId, String host, Integer port) {
         static SessionIdentity empty() {
-            return new SessionIdentity(null, null);
+            return new SessionIdentity(null, null, null, null);
         }
     }
 
@@ -805,6 +815,12 @@ public final class ScenarioConfig {
 
         @JsonAlias({"target_comp_id"})
         public String targetCompId;
+
+        @JsonAlias({"connect_host", "initiator_host", "remote_host", "host"})
+        public String host;
+
+        @JsonAlias({"connect_port", "initiator_port", "remote_port", "port"})
+        public Integer port;
     }
 
     static final class SimulatorSpec {
