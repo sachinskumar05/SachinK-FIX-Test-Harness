@@ -11,3 +11,9 @@
 
 # Mac
 .DS_Store
+
+# Build Output
+bin/
+out/
+build/
+target/

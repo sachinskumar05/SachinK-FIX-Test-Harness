@@ -5,8 +5,19 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class DeterministicLinker {
+    private final LinkerConfig config;
+
+    public DeterministicLinker() {
+        this(LinkerConfig.defaults());
+    }
+
+    public DeterministicLinker(LinkerConfig config) {
+        this.config = Objects.requireNonNull(config, "config");
+    }
+
     public List<FixLink> link(List<FixLogEntry> entries) {
         Map<String, Long> pendingRequests = new LinkedHashMap<>();
         List<FixLink> links = new ArrayList<>();
@@ -32,6 +43,20 @@ public final class DeterministicLinker {
         }
 
         return List.copyOf(links);
+    }
+
+    public LinkReport link(List<FixLogEntry> inMessages, List<FixLogEntry> outMessages) {
+        LinkDiscovery discovery = new LinkDiscovery(config);
+        Map<String, List<Integer>> strategyByMsgType = discovery.discover(inMessages, outMessages);
+        LinkIndex index = LinkIndex.build(inMessages, strategyByMsgType, config);
+        LinkIndex.Result result = index.link(outMessages);
+        return new LinkReport(
+            strategyByMsgType,
+            result.matches(),
+            result.unmatched(),
+            result.ambiguous(),
+            result.topCollisions()
+        );
     }
 
     private static boolean isRequest(String msgType) {
