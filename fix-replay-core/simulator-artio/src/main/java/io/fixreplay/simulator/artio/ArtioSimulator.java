@@ -9,7 +9,6 @@ import io.fixreplay.model.FixParser;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.List;
@@ -49,6 +48,7 @@ public final class ArtioSimulator implements AutoCloseable {
 
     private final ArtioSimulatorConfig config;
     private final ArtioMutationEngine mutationEngine;
+    private final ArtioSessionMessageSender sessionMessageSender;
     private final TopologyMode topologyMode;
     private final TopologyRuntime topologyRuntime;
     private final ArrayDeque<QueuedOutboundMessage> pendingOutboundQueue;
@@ -61,6 +61,7 @@ public final class ArtioSimulator implements AutoCloseable {
     private ArtioSimulator(ArtioSimulatorConfig config) {
         this.config = Objects.requireNonNull(config, "config");
         this.mutationEngine = ArtioMutationEngine.fromConfig(config.mutation());
+        this.sessionMessageSender = new ArtioSessionMessageSender();
         this.pendingOutboundQueue = new ArrayDeque<>(Math.min(1_024, config.routing().maxQueueDepth()));
         this.topologyMode = (config.entry().listenPort() == config.exit().listenPort())
             ? TopologyMode.SINGLE_PORT
@@ -658,6 +659,7 @@ public final class ArtioSimulator implements AutoCloseable {
             if (outboundMsgType == null || outboundMsgType.isBlank()) {
                 throw new IllegalStateException("Mutated message is missing required tag 35");
             }
+            FixMessage outboundMessage = ArtioSessionMessageSender.toFixMessage(outboundFields);
 
             if (config.observability().logInboundOutbound()) {
                 LOGGER.debug(
@@ -669,7 +671,7 @@ public final class ArtioSimulator implements AutoCloseable {
                 );
             }
 
-            return routeToExit(runtimeName, outboundMsgType, outboundFields, exitSessionSupplier.get());
+            return routeToExit(runtimeName, outboundMsgType, outboundMessage, exitSessionSupplier.get());
         } catch (RuntimeException processingFailure) {
             lastError.compareAndSet(
                 null,
@@ -687,9 +689,9 @@ public final class ArtioSimulator implements AutoCloseable {
         return config.routing().enabledMsgTypes().contains(msgType);
     }
 
-    private Action routeToExit(String runtimeName, String msgType, Map<Integer, String> fields, Session exitSession) {
+    private Action routeToExit(String runtimeName, String msgType, FixMessage message, Session exitSession) {
         if (exitSession == null || !exitSession.isConnected()) {
-            return handleExitUnavailable(msgType, fields);
+            return handleExitUnavailable(msgType, message);
         }
 
         Action flushResult = flushQueuedMessages(runtimeName, exitSession);
@@ -697,10 +699,10 @@ public final class ArtioSimulator implements AutoCloseable {
             return flushResult;
         }
 
-        return sendToExit(runtimeName, exitSession, new QueuedOutboundMessage(msgType, fields));
+        return sendToExit(runtimeName, exitSession, new QueuedOutboundMessage(msgType, message));
     }
 
-    private Action handleExitUnavailable(String msgType, Map<Integer, String> fields) {
+    private Action handleExitUnavailable(String msgType, FixMessage message) {
         if (config.routing().failIfExitNotLoggedOn()) {
             IllegalStateException failure = new IllegalStateException(
                 "EXIT session not connected while routing message type " + msgType
@@ -719,7 +721,7 @@ public final class ArtioSimulator implements AutoCloseable {
                 LOGGER.warn("EXIT pending queue is full; applying backpressure");
                 return Action.ABORT;
             }
-            pendingOutboundQueue.addLast(new QueuedOutboundMessage(msgType, new HashMap<>(fields)));
+            pendingOutboundQueue.addLast(new QueuedOutboundMessage(msgType, message));
             queueDepth.incrementAndGet();
         }
         return Action.CONTINUE;
@@ -757,29 +759,13 @@ public final class ArtioSimulator implements AutoCloseable {
             LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(delayMs));
         }
 
-        int sequenceNumber = Math.max(1, exitSession.lastSentMsgSeqNum() + 1);
-        ArtioOutboundCodec.EncodedFixMessage encoded = ArtioOutboundCodec.encode(
-            message.fields(),
-            config.beginString(),
-            config.exit().localCompId(),
-            config.exit().remoteCompId(),
-            sequenceNumber
-        );
-
-        UnsafeBuffer outboundBuffer = new UnsafeBuffer(encoded.payload());
-        long sendResult = exitSession.trySend(
-            outboundBuffer,
-            0,
-            encoded.payload().length,
-            encoded.seqNum(),
-            encoded.packedMsgType()
-        );
+        long sendResult = sessionMessageSender.sendOnSession(exitSession, message.message(), config.beginString());
 
         if (sendResult <= 0) {
             LOGGER.warn(
                 "EXIT trySend backpressured/failed [runtime={}, msgType={}, code={}]",
                 runtimeName,
-                encoded.msgType(),
+                message.msgType(),
                 sendResult
             );
             return Action.ABORT;
@@ -790,12 +776,12 @@ public final class ArtioSimulator implements AutoCloseable {
                 "Sent EXIT message [runtime={}, sessionId={}, msgType={}, seqNum={}]",
                 runtimeName,
                 exitSession.id(),
-                encoded.msgType(),
-                encoded.seqNum()
+                message.msgType(),
+                exitSession.lastSentMsgSeqNum()
             );
         }
         if (config.observability().logFixPayloads()) {
-            LOGGER.debug("EXIT payload {}", formatPayload(encoded.payload()));
+            LOGGER.debug("EXIT message fields {}", message.message().fields());
         }
         return Action.CONTINUE;
     }
@@ -805,10 +791,6 @@ public final class ArtioSimulator implements AutoCloseable {
             pendingOutboundQueue.clear();
             queueDepth.set(0);
         }
-    }
-
-    private static String formatPayload(byte[] payload) {
-        return new String(payload, StandardCharsets.ISO_8859_1).replace('\u0001', '|');
     }
 
     private static void ensureDirectory(Path path) {
@@ -844,10 +826,10 @@ public final class ArtioSimulator implements AutoCloseable {
     ) {
     }
 
-    private record QueuedOutboundMessage(String msgType, Map<Integer, String> fields) {
+    private record QueuedOutboundMessage(String msgType, FixMessage message) {
         private QueuedOutboundMessage {
             Objects.requireNonNull(msgType, "msgType");
-            fields = Map.copyOf(Objects.requireNonNull(fields, "fields"));
+            Objects.requireNonNull(message, "message");
         }
     }
 
@@ -904,7 +886,12 @@ public final class ArtioSimulator implements AutoCloseable {
             if (config.observability().logFixPayloads() && sessionRole != SessionRole.OBSERVE_ONLY) {
                 byte[] payload = new byte[length];
                 buffer.getBytes(offset, payload, 0, length);
-                LOGGER.debug("Observed payload [runtime={}, role={}] {}", runtimeName, sessionRole, formatPayload(payload));
+                LOGGER.debug(
+                    "Observed payload [runtime={}, role={}] {}",
+                    runtimeName,
+                    sessionRole,
+                    ArtioSessionMessageSender.toDisplayString(payload)
+                );
             }
             return Action.CONTINUE;
         }
