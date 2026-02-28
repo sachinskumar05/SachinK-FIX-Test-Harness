@@ -2,4 +2,5 @@ description = 'Optional adapter for Artio-backed online FIX IO'
 
 dependencies {
     implementation project(':fix-runner')
+    implementation "uk.co.real-logic:artio-core:0.175"
 }
