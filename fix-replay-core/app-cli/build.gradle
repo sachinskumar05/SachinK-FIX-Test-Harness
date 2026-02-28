@@ -6,6 +6,9 @@ description = 'Picocli command-line application'
 
 dependencies {
     implementation project(':fix-runner')
+    implementation project(':fix-loader')
+    implementation project(':fix-linker')
+    implementation project(':fix-compare')
     implementation "info.picocli:picocli:${rootProject.ext.versions.picocli}"
     implementation "com.fasterxml.jackson.core:jackson-databind:${rootProject.ext.versions.jackson}"
 }
