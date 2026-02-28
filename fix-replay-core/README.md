@@ -12,6 +12,7 @@ Reusable FIX replay engine designed for:
 - `:fix-compare` - configurable FIX message comparison and diffing
 - `:fix-runner` - offline replay runner and online adapter interfaces
 - `:adapter-artio` - optional Artio-flavored online adapter implementation
+- `:simulator-artio` - Artio-based integration-test simulator with ENTRY/EXIT acceptor sessions
 - `:adapter-quickfixj` - optional QuickFIX/J-flavored online adapter implementation
 - `:app-cli` - picocli command-line entry point
 - `:app-server` - small Javalin REST backend
@@ -46,3 +47,7 @@ Default endpoints:
 ## CI
 
 GitLab CI validates compilation and tests via `.gitlab-ci.yml`.
+
+## Simulator (Artio)
+
+See [simulator-artio/README.md](simulator-artio/README.md) for the simulator runbook.
