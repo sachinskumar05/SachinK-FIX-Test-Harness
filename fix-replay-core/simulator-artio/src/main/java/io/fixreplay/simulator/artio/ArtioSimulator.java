@@ -350,10 +350,16 @@ public final class ArtioSimulator implements AutoCloseable {
             if (key != null && matchesEndpoint(key, entryEndpoint)) {
                 entrySessionRef.set(session);
                 entryAcquired.set(true);
+                LOGGER.info("Acquired ENTRY session on single-port runtime [sessionId={}, key={}]", session.id(), key);
                 return new RoutingSessionHandler(runtimeName(), SessionRole.ENTRY, () -> exitSessionRef.get());
             } else if (key != null && matchesEndpoint(key, exitEndpoint)) {
                 exitSessionRef.set(session);
                 exitAcquired.set(true);
+                LOGGER.info("Acquired EXIT session on single-port runtime [sessionId={}, key={}]", session.id(), key);
+                Action flushResult = flushQueuedMessages(runtimeName(), session);
+                if (flushResult != Action.CONTINUE) {
+                    LOGGER.warn("Flush on EXIT acquisition returned {} on single-port runtime", flushResult);
+                }
                 return new RoutingSessionHandler(runtimeName(), SessionRole.EXIT, () -> exitSessionRef.get());
             } else {
                 LOGGER.warn("Ignoring unexpected session on single-port runtime: {}", key);
@@ -409,6 +415,19 @@ public final class ArtioSimulator implements AutoCloseable {
             if (key != null && matchesEndpoint(key, endpoint)) {
                 sessionRef.set(session);
                 acquired.set(true);
+                LOGGER.info(
+                    "Acquired {} session on {} runtime [sessionId={}, key={}]",
+                    role,
+                    runtimeName(),
+                    session.id(),
+                    key
+                );
+                if (role == SessionRole.EXIT) {
+                    Action flushResult = flushQueuedMessages(runtimeName(), session);
+                    if (flushResult != Action.CONTINUE) {
+                        LOGGER.warn("Flush on EXIT acquisition returned {} on {} runtime", flushResult, runtimeName());
+                    }
+                }
                 return new RoutingSessionHandler(runtimeName(), role, exitSessionSupplier);
             } else {
                 LOGGER.warn("Ignoring unexpected session on {} runtime: {}", runtimeName(), key);
@@ -537,7 +556,7 @@ public final class ArtioSimulator implements AutoCloseable {
             EngineConfiguration configuration = new EngineConfiguration()
                 .bindTo(listenHost, listenPort)
                 .libraryAeronChannel(CommonContext.IPC_CHANNEL)
-                .initialAcceptedSessionOwner(InitialAcceptedSessionOwner.SOLE_LIBRARY)
+                .initialAcceptedSessionOwner(InitialAcceptedSessionOwner.ENGINE)
                 .logFileDir(paths.logDir().toString())
                 .deleteLogFileDirOnStart(config.storageDirs().deleteOnStart())
                 .logInboundMessages(false)
@@ -646,6 +665,15 @@ public final class ArtioSimulator implements AutoCloseable {
                 LOGGER.warn("Ignoring inbound ENTRY message without tag 35 [runtime={}, sessionId={}]", runtimeName, entrySession.id());
                 return Action.CONTINUE;
             }
+            if (config.observability().logInboundOutbound() && ADMIN_MSG_TYPES.contains(msgType)) {
+                LOGGER.debug(
+                    "ENTRY admin message [runtime={}, sessionId={}, msgType={}, connectedExit={}]",
+                    runtimeName,
+                    entrySession.id(),
+                    msgType,
+                    exitSessionSupplier.get() != null && exitSessionSupplier.get().isConnected()
+                );
+            }
             if (!shouldRouteMessageType(msgType)) {
                 return Action.CONTINUE;
             }
@@ -723,6 +751,9 @@ public final class ArtioSimulator implements AutoCloseable {
             }
             pendingOutboundQueue.addLast(new QueuedOutboundMessage(msgType, message));
             queueDepth.incrementAndGet();
+            if (config.observability().logInboundOutbound()) {
+                LOGGER.debug("Queued EXIT message [msgType={}, queueDepth={}]", msgType, pendingOutboundQueue.size());
+            }
         }
         return Action.CONTINUE;
     }
@@ -740,6 +771,9 @@ public final class ArtioSimulator implements AutoCloseable {
                 }
                 pendingOutboundQueue.removeFirst();
                 queueDepth.decrementAndGet();
+                if (config.observability().logInboundOutbound()) {
+                    LOGGER.debug("Flushed queued EXIT message [runtime={}, queueDepth={}]", runtimeName, pendingOutboundQueue.size());
+                }
             }
         }
         return Action.CONTINUE;

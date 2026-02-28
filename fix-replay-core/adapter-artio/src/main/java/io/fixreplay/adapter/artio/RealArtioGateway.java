@@ -65,6 +65,9 @@ final class RealArtioGateway implements ArtioGateway {
                 if (transportConfig.aeronChannel() != null) {
                     libraryConfiguration.libraryAeronChannels(List.of(transportConfig.aeronChannel()));
                 }
+                if (transportConfig.aeronDir() != null) {
+                    libraryConfiguration.aeronContext().aeronDirectoryName(transportConfig.aeronDir());
+                }
 
                 connectedLibrary = FixLibrary.connect(libraryConfiguration);
                 library = connectedLibrary;
@@ -312,4 +315,3 @@ final class RealArtioGateway implements ArtioGateway {
         }
     }
 }
-

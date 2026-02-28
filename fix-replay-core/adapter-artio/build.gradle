@@ -1,6 +1,8 @@
 description = 'Optional adapter for Artio-backed online FIX IO'
 
+def artioVersion = rootProject.findProperty('artioVersion') ?: '0.175'
+
 dependencies {
     implementation project(':fix-runner')
-    implementation "uk.co.real-logic:artio-core:0.175"
+    implementation "uk.co.real-logic:artio-core:${artioVersion}"
 }

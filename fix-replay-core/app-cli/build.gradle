@@ -20,7 +20,12 @@ application {
 }
 
 tasks.named('run') {
-    jvmArgs("-Dfix.replay.version=${project.version}")
+    jvmArgs(
+        "-Dfix.replay.version=${project.version}",
+        '--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/jdk.internal.misc=ALL-UNNAMED',
+        '--add-opens=java.base/sun.nio.ch=ALL-UNNAMED'
+    )
 }
 
 tasks.named('test') {

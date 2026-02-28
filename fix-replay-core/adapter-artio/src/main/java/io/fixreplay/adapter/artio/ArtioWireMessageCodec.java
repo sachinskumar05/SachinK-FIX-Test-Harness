@@ -25,12 +25,12 @@ final class ArtioWireMessageCodec {
         Objects.requireNonNull(config, "config");
 
         Map<Integer, String> fields = message.fields();
-        String beginString = firstNonBlank(fields.get(8), "FIX.4.4");
+        String beginString = firstNonBlank(config.beginString(), firstNonBlank(fields.get(8), "FIX.4.2"));
         String msgType = requireTag(fields, 35);
-        String senderCompId = firstNonBlank(fields.get(49), config.senderCompId());
-        String targetCompId = firstNonBlank(fields.get(56), config.targetCompId());
-        int sequenceNumber = message.getInt(34, fallbackSequenceNumber);
-        String sendingTime = firstNonBlank(fields.get(52), SENDING_TIME_FORMATTER.format(Instant.now()));
+        String senderCompId = config.senderCompId();
+        String targetCompId = config.targetCompId();
+        int sequenceNumber = fallbackSequenceNumber;
+        String sendingTime = SENDING_TIME_FORMATTER.format(Instant.now());
 
         List<Map.Entry<Integer, String>> businessFields = new ArrayList<>(Math.max(4, fields.size()));
         for (Map.Entry<Integer, String> entry : fields.entrySet()) {
@@ -118,4 +118,3 @@ final class ArtioWireMessageCodec {
         }
     }
 }
-

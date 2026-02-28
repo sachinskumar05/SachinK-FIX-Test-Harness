@@ -7,6 +7,7 @@ import java.util.Objects;
 record ArtioTransportConfig(
     String host,
     int port,
+    String beginString,
     String senderCompId,
     String targetCompId,
     String exitSenderCompId,
@@ -21,10 +22,14 @@ record ArtioTransportConfig(
     boolean sequenceNumbersPersistent,
     boolean resetSeqNum,
     boolean disconnectOnFirstMessageNotLogon,
-    String aeronChannel
+    String aeronChannel,
+    String aeronDir
 ) {
     static final String HOST_PROPERTY = "artio.host";
     static final String PORT_PROPERTY = "artio.port";
+    static final String EXIT_HOST_PROPERTY = "artio.exitHost";
+    static final String EXIT_PORT_PROPERTY = "artio.exitPort";
+    static final String BEGIN_STRING_PROPERTY = "artio.beginString";
     static final String SENDER_COMP_ID_PROPERTY = "artio.senderCompId";
     static final String TARGET_COMP_ID_PROPERTY = "artio.targetCompId";
     static final String EXIT_SENDER_COMP_ID_PROPERTY = "artio.exitSenderCompId";
@@ -40,17 +45,22 @@ record ArtioTransportConfig(
     static final String RESET_SEQ_NUM_PROPERTY = "artio.resetSeqNum";
     static final String DISCONNECT_ON_FIRST_NON_LOGON_PROPERTY = "artio.disconnectOnFirstMessageNotLogon";
     static final String AERON_CHANNEL_PROPERTY = "artio.aeronChannel";
+    static final String AERON_DIR_PROPERTY = "artio.aeronDir";
+    static final String EXIT_AERON_DIR_PROPERTY = "artio.exitAeronDir";
 
     private static final String DEFAULT_HOST = "localhost";
     private static final int DEFAULT_PORT = 9999;
+    private static final String DEFAULT_BEGIN_STRING = "FIX.4.2";
     private static final int DEFAULT_HEARTBEAT_SECONDS = 30;
     private static final long DEFAULT_REPLY_TIMEOUT_MS = 5_000L;
     private static final long DEFAULT_CONNECT_TIMEOUT_MS = 10_000L;
     private static final int DEFAULT_POLL_FRAGMENT_LIMIT = 20;
     private static final long DEFAULT_POLL_IDLE_MICROS = 200L;
+    private static final String DEFAULT_AERON_CHANNEL = "aeron:ipc";
 
     ArtioTransportConfig {
         host = requireNonBlank(host, HOST_PROPERTY);
+        beginString = requireNonBlank(beginString, BEGIN_STRING_PROPERTY);
         senderCompId = requireNonBlank(senderCompId, SENDER_COMP_ID_PROPERTY);
         targetCompId = requireNonBlank(targetCompId, TARGET_COMP_ID_PROPERTY);
         exitSenderCompId = requireNonBlank(exitSenderCompId, EXIT_SENDER_COMP_ID_PROPERTY);
@@ -82,6 +92,7 @@ record ArtioTransportConfig(
 
         String host = readString(properties, HOST_PROPERTY, DEFAULT_HOST);
         int port = readInt(properties, PORT_PROPERTY, DEFAULT_PORT);
+        String beginString = readString(properties, BEGIN_STRING_PROPERTY, DEFAULT_BEGIN_STRING);
         String senderCompId = readString(properties, SENDER_COMP_ID_PROPERTY, sessionConfig.entrySession().senderCompId());
         String targetCompId = readString(properties, TARGET_COMP_ID_PROPERTY, sessionConfig.entrySession().targetCompId());
         String exitSenderCompId = readString(
@@ -108,11 +119,13 @@ record ArtioTransportConfig(
             DISCONNECT_ON_FIRST_NON_LOGON_PROPERTY,
             true
         );
-        String aeronChannel = readOptionalString(properties, AERON_CHANNEL_PROPERTY);
+        String aeronChannel = readString(properties, AERON_CHANNEL_PROPERTY, DEFAULT_AERON_CHANNEL);
+        String aeronDir = readOptionalString(properties, AERON_DIR_PROPERTY);
 
         return new ArtioTransportConfig(
             host,
             port,
+            beginString,
             senderCompId,
             targetCompId,
             exitSenderCompId,
@@ -127,7 +140,8 @@ record ArtioTransportConfig(
             sequenceNumbersPersistent,
             resetSeqNum,
             disconnectOnFirstMessageNotLogon,
-            aeronChannel
+            aeronChannel,
+            aeronDir
         );
     }
 
@@ -188,4 +202,3 @@ record ArtioTransportConfig(
         return candidate;
     }
 }
-

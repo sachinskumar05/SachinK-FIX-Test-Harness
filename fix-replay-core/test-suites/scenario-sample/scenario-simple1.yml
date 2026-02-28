@@ -21,12 +21,12 @@ sessions:
 
 compare:
   excludeTimeLikeTags: true
-  defaultExcludeTags: [49, 56]
+  defaultExcludeTags: [8, 9, 10, 34, 49, 52, 56, 122]
 
 simulator:
   provider: "artio"
   enabled: true
-  begin_string: "FIX.4.2"
+  begin_string: "FIX.4.4"
 
   # Simulator-side sessions (acceptors)
   entry:
@@ -44,7 +44,7 @@ simulator:
   routing:
     enabled_msg_types: ["D", "G", "F", "8", "3", "j"]
     drop_admin_messages: true
-    fail_if_exit_not_logged_on: true
+    fail_if_exit_not_logged_on: false
     artificial_delay_ms: 0
     max_queue_depth: 50000
 

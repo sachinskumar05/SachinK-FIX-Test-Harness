@@ -3,6 +3,7 @@ package io.fixreplay.adapter.artio;
 import io.fixreplay.model.FixMessage;
 import io.fixreplay.runner.FixTransport;
 import io.fixreplay.runner.TransportSessionConfig;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
 
@@ -13,8 +14,11 @@ public final class ArtioFixTransport implements FixTransport {
     private final Object lifecycleLock = new Object();
 
     private volatile Consumer<FixMessage> receiveCallback = NOOP_RECEIVER;
-    private ArtioGateway gateway;
-    private ArtioTransportConfig activeConfig;
+    private ArtioGateway outboundGateway;
+    private ArtioGateway inboundGateway;
+    private ArtioTransportConfig outboundConfig;
+    private String expectedInboundSenderCompId;
+    private String expectedInboundTargetCompId;
 
     public ArtioFixTransport() {
         this(RealArtioGateway::new);
@@ -28,23 +32,32 @@ public final class ArtioFixTransport implements FixTransport {
     public void connect(TransportSessionConfig sessionConfig) {
         Objects.requireNonNull(sessionConfig, "sessionConfig");
 
-        ArtioGateway connectedGateway;
+        ArtioGateway createdOutboundGateway;
+        ArtioGateway createdInboundGateway;
+        ArtioTransportConfig createdOutboundConfig = ArtioTransportConfig.from(sessionConfig);
+        ArtioTransportConfig createdInboundConfig = inboundConfig(sessionConfig.properties(), createdOutboundConfig);
         synchronized (lifecycleLock) {
-            if (gateway != null) {
+            if (outboundGateway != null || inboundGateway != null) {
                 throw new IllegalStateException("Artio transport is already connected");
             }
 
-            ArtioTransportConfig config = ArtioTransportConfig.from(sessionConfig);
-            activeConfig = config;
-            connectedGateway = gatewayFactory.create();
-            connectedGateway.setReceiveHandler(this::forwardInboundMessage);
-            gateway = connectedGateway;
+            createdOutboundGateway = gatewayFactory.create();
+            createdInboundGateway = gatewayFactory.create();
+            createdOutboundGateway.setReceiveHandler(NOOP_RECEIVER);
+            createdInboundGateway.setReceiveHandler(this::forwardInboundMessage);
+
+            outboundConfig = createdOutboundConfig;
+            expectedInboundSenderCompId = createdOutboundConfig.exitSenderCompId();
+            expectedInboundTargetCompId = createdOutboundConfig.exitTargetCompId();
+            outboundGateway = createdOutboundGateway;
+            inboundGateway = createdInboundGateway;
         }
 
         try {
-            connectedGateway.connect(activeConfig);
+            createdOutboundGateway.connect(createdOutboundConfig);
+            createdInboundGateway.connect(createdInboundConfig);
         } catch (RuntimeException connectFailure) {
-            onConnectFailure(connectedGateway, connectFailure);
+            onConnectFailure(createdOutboundGateway, createdInboundGateway, connectFailure);
             throw connectFailure;
         }
     }
@@ -54,7 +67,7 @@ public final class ArtioFixTransport implements FixTransport {
         receiveCallback = Objects.requireNonNull(callback, "callback");
         ArtioGateway activeGateway;
         synchronized (lifecycleLock) {
-            activeGateway = gateway;
+            activeGateway = inboundGateway;
         }
         if (activeGateway != null) {
             activeGateway.setReceiveHandler(this::forwardInboundMessage);
@@ -65,7 +78,7 @@ public final class ArtioFixTransport implements FixTransport {
     public void send(FixMessage message) {
         ArtioGateway activeGateway;
         synchronized (lifecycleLock) {
-            activeGateway = gateway;
+            activeGateway = outboundGateway;
         }
         if (activeGateway == null) {
             throw new IllegalStateException("Artio transport is not connected");
@@ -75,45 +88,150 @@ public final class ArtioFixTransport implements FixTransport {
 
     @Override
     public void close() {
-        ArtioGateway gatewayToClose;
+        ArtioGateway outboundToClose;
+        ArtioGateway inboundToClose;
         synchronized (lifecycleLock) {
-            gatewayToClose = gateway;
-            gateway = null;
-            activeConfig = null;
+            outboundToClose = outboundGateway;
+            inboundToClose = inboundGateway;
+            outboundGateway = null;
+            inboundGateway = null;
+            outboundConfig = null;
+            expectedInboundSenderCompId = null;
+            expectedInboundTargetCompId = null;
         }
-        if (gatewayToClose != null) {
-            gatewayToClose.close();
+        RuntimeException closeFailure = null;
+        if (inboundToClose != null) {
+            try {
+                inboundToClose.close();
+            } catch (RuntimeException failure) {
+                closeFailure = failure;
+            }
+        }
+        if (outboundToClose != null) {
+            try {
+                outboundToClose.close();
+            } catch (RuntimeException failure) {
+                if (closeFailure == null) {
+                    closeFailure = failure;
+                } else {
+                    closeFailure.addSuppressed(failure);
+                }
+            }
+        }
+        if (closeFailure != null) {
+            throw closeFailure;
         }
     }
 
-    private void onConnectFailure(ArtioGateway failedGateway, RuntimeException connectFailure) {
+    private void onConnectFailure(
+        ArtioGateway failedOutboundGateway,
+        ArtioGateway failedInboundGateway,
+        RuntimeException connectFailure
+    ) {
         synchronized (lifecycleLock) {
-            if (gateway == failedGateway) {
-                gateway = null;
-                activeConfig = null;
+            if (outboundGateway == failedOutboundGateway) {
+                outboundGateway = null;
             }
+            if (inboundGateway == failedInboundGateway) {
+                inboundGateway = null;
+            }
+            outboundConfig = null;
+            expectedInboundSenderCompId = null;
+            expectedInboundTargetCompId = null;
+        }
+        closeGatewayQuietly(failedInboundGateway, connectFailure);
+        closeGatewayQuietly(failedOutboundGateway, connectFailure);
+    }
+
+    private static void closeGatewayQuietly(ArtioGateway gateway, RuntimeException connectFailure) {
+        if (gateway == null) {
+            return;
         }
         try {
-            failedGateway.close();
+            gateway.close();
         } catch (RuntimeException closeFailure) {
             connectFailure.addSuppressed(closeFailure);
         }
     }
 
     private void forwardInboundMessage(FixMessage message) {
-        ArtioTransportConfig config = activeConfig;
-        if (config == null || shouldDispatch(message, config)) {
+        String expectedSender;
+        String expectedTarget;
+        synchronized (lifecycleLock) {
+            expectedSender = expectedInboundSenderCompId;
+            expectedTarget = expectedInboundTargetCompId;
+        }
+        if (expectedSender == null || expectedTarget == null || shouldDispatch(message, expectedSender, expectedTarget)) {
             receiveCallback.accept(message);
         }
     }
 
-    private static boolean shouldDispatch(FixMessage message, ArtioTransportConfig config) {
+    private static ArtioTransportConfig inboundConfig(Map<String, String> properties, ArtioTransportConfig outboundConfig) {
+        String host = readString(properties, ArtioTransportConfig.EXIT_HOST_PROPERTY, outboundConfig.host());
+        int port = readInt(properties, ArtioTransportConfig.EXIT_PORT_PROPERTY, outboundConfig.port());
+
+        String senderCompId = readString(
+            properties,
+            ArtioTransportConfig.EXIT_TARGET_COMP_ID_PROPERTY,
+            outboundConfig.exitTargetCompId()
+        );
+        String targetCompId = readString(
+            properties,
+            ArtioTransportConfig.EXIT_SENDER_COMP_ID_PROPERTY,
+            outboundConfig.exitSenderCompId()
+        );
+        String aeronDir = readString(properties, ArtioTransportConfig.EXIT_AERON_DIR_PROPERTY, outboundConfig.aeronDir());
+
+        return new ArtioTransportConfig(
+            host,
+            port,
+            outboundConfig.beginString(),
+            senderCompId,
+            targetCompId,
+            outboundConfig.exitSenderCompId(),
+            outboundConfig.exitTargetCompId(),
+            outboundConfig.username(),
+            outboundConfig.password(),
+            outboundConfig.heartbeatIntervalSeconds(),
+            outboundConfig.replyTimeoutMs(),
+            outboundConfig.connectTimeoutMs(),
+            outboundConfig.pollFragmentLimit(),
+            outboundConfig.pollIdleMicros(),
+            outboundConfig.sequenceNumbersPersistent(),
+            outboundConfig.resetSeqNum(),
+            outboundConfig.disconnectOnFirstMessageNotLogon(),
+            outboundConfig.aeronChannel(),
+            aeronDir
+        );
+    }
+
+    private static String readString(Map<String, String> properties, String key, String defaultValue) {
+        String value = properties.get(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        return value.trim();
+    }
+
+    private static int readInt(Map<String, String> properties, String key, int defaultValue) {
+        String value = properties.get(key);
+        if (value == null || value.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.trim());
+        } catch (NumberFormatException parseFailure) {
+            throw new IllegalArgumentException("Invalid integer property " + key + ": " + value, parseFailure);
+        }
+    }
+
+    private static boolean shouldDispatch(FixMessage message, String expectedSenderCompId, String expectedTargetCompId) {
         String senderCompId = message.senderCompId();
         String targetCompId = message.targetCompId();
         if (senderCompId == null || targetCompId == null) {
             return true;
         }
-        return config.exitSenderCompId().equals(senderCompId) && config.exitTargetCompId().equals(targetCompId);
+        return expectedSenderCompId.equals(senderCompId) && expectedTargetCompId.equals(targetCompId);
     }
 }
 
@@ -121,4 +239,3 @@ public final class ArtioFixTransport implements FixTransport {
 interface ArtioGatewayFactory {
     ArtioGateway create();
 }
-

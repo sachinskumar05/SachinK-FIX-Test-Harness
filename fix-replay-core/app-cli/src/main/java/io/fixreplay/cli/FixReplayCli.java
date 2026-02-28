@@ -591,6 +591,13 @@ public final class FixReplayCli implements Callable<Integer> {
         merged.putIfAbsent("artio.port", Integer.toString(simulatorConfig.entry().listenPort()));
         merged.putIfAbsent("artio.exitHost", connectHostFromListenHost(simulatorConfig.exit().listenHost()));
         merged.putIfAbsent("artio.exitPort", Integer.toString(simulatorConfig.exit().listenPort()));
+        merged.putIfAbsent("artio.beginString", simulatorConfig.beginString());
+        merged.putIfAbsent("artio.senderCompId", simulatorConfig.entry().remoteCompId());
+        merged.putIfAbsent("artio.targetCompId", simulatorConfig.entry().localCompId());
+        merged.putIfAbsent("artio.exitSenderCompId", simulatorConfig.exit().localCompId());
+        merged.putIfAbsent("artio.exitTargetCompId", simulatorConfig.exit().remoteCompId());
+        merged.putIfAbsent("artio.aeronDir", simulatorAeronDirForTransport(simulatorConfig).toString());
+        merged.putIfAbsent("artio.exitAeronDir", simulatorExitAeronDirForTransport(simulatorConfig).toString());
         return Map.copyOf(merged);
     }
 
@@ -662,7 +669,7 @@ public final class FixReplayCli implements Callable<Integer> {
         }
 
         try {
-            awaitSimulatorReady(simulator, readyTimeoutMs);
+            awaitSimulatorReadyOrAcceptingConnections(simulator, readyTimeoutMs);
         } catch (RuntimeException readinessFailure) {
             try {
                 simulator.stop();
@@ -676,7 +683,7 @@ public final class FixReplayCli implements Callable<Integer> {
         return new EmbeddedSimulatorHandle(simulator, effectiveProperties);
     }
 
-    private static void awaitSimulatorReady(ArtioSimulator simulator, long timeoutMs) {
+    private static void awaitSimulatorReadyOrAcceptingConnections(ArtioSimulator simulator, long timeoutMs) {
         long deadlineNanos = System.nanoTime() + Duration.ofMillis(timeoutMs).toNanos();
         while (System.nanoTime() < deadlineNanos) {
             if (simulator.isReady()) {
@@ -685,6 +692,16 @@ public final class FixReplayCli implements Callable<Integer> {
             ArtioSimulator.Diagnostics diagnostics = simulator.diagnosticsSnapshot();
             if (diagnostics.lastError() != null) {
                 throw new IllegalArgumentException("Embedded simulator failed during startup: " + diagnostics.lastError());
+            }
+            if (
+                !diagnostics.entrySessionAcquired() &&
+                !diagnostics.exitSessionAcquired() &&
+                !diagnostics.entrySessionConnected() &&
+                !diagnostics.exitSessionConnected()
+            ) {
+                // No sessions yet means the acceptor is waiting for initiator connections, which is expected
+                // before the online runner creates transports.
+                return;
             }
             try {
                 Thread.sleep(SIMULATOR_READY_POLL_INTERVAL_MS);
@@ -695,7 +712,7 @@ public final class FixReplayCli implements Callable<Integer> {
         }
         ArtioSimulator.Diagnostics diagnostics = simulator.diagnosticsSnapshot();
         throw new IllegalArgumentException(
-            "Timed out waiting for embedded simulator readiness after " +
+            "Timed out waiting for embedded simulator readiness/startup after " +
                 timeoutMs +
                 "ms (entryAcquired=" +
                 diagnostics.entrySessionAcquired() +
@@ -718,6 +735,22 @@ public final class FixReplayCli implements Callable<Integer> {
             return "127.0.0.1";
         }
         return host;
+    }
+
+    private static Path simulatorAeronDirForTransport(ArtioSimulatorConfig simulatorConfig) {
+        boolean singlePort =
+            simulatorConfig.entry().listenPort() == simulatorConfig.exit().listenPort() &&
+            Objects.equals(simulatorConfig.entry().listenHost(), simulatorConfig.exit().listenHost());
+        String endpointDir = singlePort ? "single" : "entry";
+        return simulatorConfig.storageDirs().aeronDir().resolve(endpointDir).toAbsolutePath().normalize();
+    }
+
+    private static Path simulatorExitAeronDirForTransport(ArtioSimulatorConfig simulatorConfig) {
+        boolean singlePort =
+            simulatorConfig.entry().listenPort() == simulatorConfig.exit().listenPort() &&
+            Objects.equals(simulatorConfig.entry().listenHost(), simulatorConfig.exit().listenHost());
+        String endpointDir = singlePort ? "single" : "exit";
+        return simulatorConfig.storageDirs().aeronDir().resolve(endpointDir).toAbsolutePath().normalize();
     }
 
     private static Map<String, String> loadTransportConfig(Path configFile) throws IOException {
