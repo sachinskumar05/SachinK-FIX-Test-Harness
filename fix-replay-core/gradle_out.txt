@@ -1,0 +1,143 @@
+Reusing configuration cache.
+> Task :app-server:formatCheck FAILED
+> Task :fix-loader:formatCheck FAILED
+> Task :app-cli:formatCheck FAILED
+> Task :fix-compare:formatCheck FAILED
+> Task :adapter-quickfixj:formatCheck FAILED
+> Task :adapter-artio:formatCheck FAILED
+> Task :fix-linker:formatCheck FAILED
+> Task :fix-model:formatCheck FAILED
+
+FAILURE: Build completed with 8 failures.
+
+1: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':app-server:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\app-server\src\test\java\io\fixreplay\server\FixReplayServerTest.java:8
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+2: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':fix-loader:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\fix-loader\src\test\java\io\fixreplay\loader\FixLogScannerTest.java:9
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+3: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':app-cli:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\app-cli\src\test\java\io\fixreplay\cli\FixReplayCliTest.java:10
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+4: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':fix-compare:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\fix-compare\src\test\java\io\fixreplay\compare\FixMessageComparatorTest.java:10
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+5: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':adapter-quickfixj:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\adapter-quickfixj\src\test\java\io\fixreplay\adapter\quickfixj\QuickFixJOnlineAdapterTest.java:9
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+6: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':adapter-artio:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\adapter-artio\src\test\java\io\fixreplay\adapter\artio\ArtioOnlineAdapterTest.java:9
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+7: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':fix-linker:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\fix-linker\src\test\java\io\fixreplay\linker\DeterministicLinkerTest.java:10
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+8: Task failed with an exception.
+-----------
+* Where:
+Build file 'C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\build.gradle' line: 85
+
+* What went wrong:
+Execution failed for task ':fix-model:formatCheck'.
+> Trailing whitespace in C:\Users\sachi\IdeaProjects\SachinK-FIX-Test-Harness\fix-replay-core\fix-model\src\test\java\io\fixreplay\model\FixMessageTest.java:8
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to generate a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+==============================================================================
+
+BUILD FAILED in 1s
+8 actionable tasks: 8 executed
+Configuration cache entry reused.

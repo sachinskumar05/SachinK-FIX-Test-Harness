@@ -1,0 +1,4 @@
+INFO startup complete
+2026-02-28 10:00:00.123 IN gateway 8=FIX.4.4^A9=112^A35=D^A11=ORD-1^A55=AAPL^A54=1^A38=100^A10=128^A
+noise line without fix payload
+2026-02-28 10:00:01.456 OUT gateway 8=FIX.4.4^A9=090^A35=8^A11=ORD-1^A39=2^A150=2^A10=042^A

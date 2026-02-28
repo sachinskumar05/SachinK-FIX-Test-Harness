@@ -1,0 +1,4 @@
+debug >>> no fix payload here
+2026-02-28 10:02:00.000 IN tx random-prefix 8=FIX.4.4|9=080|35=0|34=2|49=BUY|56=SELL|10=001|
+garbage [no message]
+2026-02-28 10:02:01.000 OUT tx random-prefix 8=FIX.4.4|9=088|35=A|34=3|49=BUY|56=SELL|10=222| trailing words

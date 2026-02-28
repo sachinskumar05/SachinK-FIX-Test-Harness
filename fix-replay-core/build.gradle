@@ -40,18 +40,48 @@ subprojects { p ->
             useJUnitPlatform()
         }
 
+        tasks.register('formatFix') {
+            def pDir = project.layout.projectDirectory.asFile
+            def targetFiles = project.fileTree(pDir) {
+                include 'src/**/*.java', '*.gradle', '*.md'
+                exclude 'build/**'
+            }
+            group = 'verification'
+            description = 'Fixes minimal formatting guards.'
+            doLast {
+                targetFiles.each { file ->
+                    def text = file.getText('UTF-8')
+                    def lines = text.split('\r?\n', -1)
+                    def newLines = lines.collect { it.replaceAll(/[ \t]+$/, '') }
+                    // Re-join with the original line ending style, or enforce LF. 
+                    // To be safe and satisfy formatCheck, we use LF since formatCheck checks for \n.
+                    def newText = newLines.join('\n')
+                    // Ensure EOF newline
+                    if (!newText.endsWith('\n')) {
+                        newText += '\n'
+                    }
+                    if (text != newText) {
+                        file.write(newText, 'UTF-8')
+                        println "Fixed format for ${file}"
+                    }
+                }
+            }
+        }
+
         tasks.register('formatCheck') {
+            def pDir = project.layout.projectDirectory.asFile
+            def targetFiles = project.fileTree(pDir) {
+                include 'src/**/*.java', '*.gradle', '*.md'
+                exclude 'build/**'
+            }
             group = 'verification'
             description = 'Applies minimal formatting guards (no trailing whitespace, newline at EOF).'
             doLast {
-                fileTree(projectDir) {
-                    include 'src/**/*.java', '*.gradle', '*.md'
-                    exclude 'build/**'
-                }.files.each { file ->
+                targetFiles.each { file ->
                     def text = file.getText('UTF-8')
                     def lines = text.split('\\r?\\n', -1)
                     lines.eachWithIndex { line, idx ->
-                        if (line ==~ /.*[ \\t]+$/) {
+                        if (line ==~ /.*[ \t]+$/) {
                             throw new GradleException("Trailing whitespace in ${file}:${idx + 1}")
                         }
                     }
