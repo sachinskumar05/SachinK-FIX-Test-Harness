@@ -8,13 +8,13 @@ Artio-based integration-test FIX simulator module. The simulator exposes two acc
 ## Run Locally
 
 ```bash
-./gradlew :simulator-artio:run --args="--config simulator-artio/examples/simulator.yaml"
+./gradlew :simulator-artio:run --args="--scenario simulator-artio/examples/scenario.yaml"
 ```
 
 If rule-based mutation is enabled:
 
 ```bash
-./gradlew :simulator-artio:run --args="--config simulator-artio/examples/simulator.yaml --rules simulator-artio/examples/rules.yaml"
+./gradlew :simulator-artio:run --args="--scenario simulator-artio/examples/scenario.yaml --rules simulator-artio/examples/rules.yaml"
 ```
 
 ## Run In CI
@@ -29,7 +29,13 @@ Use module checks in pipeline:
 For end-to-end replay stages, start simulator with the same config file used in test fixtures:
 
 ```bash
-./gradlew :simulator-artio:run --args="--config simulator-artio/examples/simulator.yaml"
+./gradlew :simulator-artio:run --args="--scenario simulator-artio/examples/scenario.yaml"
+```
+
+Optional runtime overrides:
+
+```bash
+./gradlew :simulator-artio:run --args="--scenario simulator-artio/examples/scenario.yaml --overrideEntryPort 7101 --overrideExitPort 7102"
 ```
 
 ## Replayer Connection Contract
