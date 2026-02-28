@@ -21,6 +21,7 @@ include(
     'fix-compare',
     'fix-runner',
     'adapter-artio',
+    'simulator-artio',
     'adapter-quickfixj',
     'app-cli',
     'app-server',

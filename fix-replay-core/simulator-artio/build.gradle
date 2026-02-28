@@ -1,0 +1,20 @@
+description = 'Artio-based FIX simulator module'
+
+def artioVersion = rootProject.findProperty('artioVersion')
+def slf4jVersion = rootProject.findProperty('slf4jVersion')
+def logbackVersion = rootProject.findProperty('logbackVersion')
+def awaitilityVersion = rootProject.findProperty('awaitilityVersion')
+
+dependencies {
+    implementation "uk.co.real-logic:artio-core:${artioVersion}"
+    implementation "uk.co.real-logic:artio-codecs:${artioVersion}"
+    implementation "uk.co.real-logic:artio-session-codecs:${artioVersion}"
+
+    implementation "org.slf4j:slf4j-api:${slf4jVersion}"
+    runtimeOnly "ch.qos.logback:logback-classic:${logbackVersion}"
+
+    implementation "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:${rootProject.ext.versions.jackson}"
+
+    testImplementation "org.junit.jupiter:junit-jupiter:${rootProject.ext.versions.junit}"
+    testImplementation "org.awaitility:awaitility:${awaitilityVersion}"
+}
