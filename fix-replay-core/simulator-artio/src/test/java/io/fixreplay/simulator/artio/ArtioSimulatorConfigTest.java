@@ -63,7 +63,7 @@ class ArtioSimulatorConfigTest {
     }
 
     @Test
-    void validatesDistinctPortsWhenEnabled(@TempDir Path tempDir) throws IOException {
+    void allowsSinglePortTopologyWhenEnabled(@TempDir Path tempDir) throws IOException {
         Path scenario = tempDir.resolve("scenario.yaml");
         Files.writeString(
             scenario,
@@ -77,11 +77,30 @@ class ArtioSimulatorConfigTest {
                 """
         );
 
-        IllegalArgumentException error = assertThrows(
-            IllegalArgumentException.class,
-            () -> ArtioSimulatorConfig.load(scenario)
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+        assertEquals(7001, config.entry().listenPort());
+        assertEquals(7001, config.exit().listenPort());
+    }
+
+    @Test
+    void rejectsSinglePortTopologyWithDifferentHosts(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  enabled: true
+                  entry:
+                    listen_host: 0.0.0.0
+                    listen_port: 7001
+                  exit:
+                    listen_host: 127.0.0.1
+                    listen_port: 7001
+                """
         );
-        assertTrue(error.getMessage().contains("must be different"));
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> ArtioSimulatorConfig.load(scenario));
+        assertTrue(error.getMessage().contains("requires simulator.entry.listen_host and simulator.exit.listen_host"));
     }
 
     @Test

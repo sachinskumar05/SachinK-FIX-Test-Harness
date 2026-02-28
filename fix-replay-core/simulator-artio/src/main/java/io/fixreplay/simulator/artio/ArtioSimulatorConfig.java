@@ -355,8 +355,12 @@ public final class ArtioSimulatorConfig {
         if (exit.listenPort() <= 0) {
             throw new IllegalArgumentException("simulator.exit.listen_port must be set and > 0 when simulator.enabled=true");
         }
-        if (entry.listenPort() == exit.listenPort()) {
-            throw new IllegalArgumentException("simulator.entry.listen_port and simulator.exit.listen_port must be different");
+        requireNonBlank(entry.listenHost(), "simulator.entry.listen_host");
+        requireNonBlank(exit.listenHost(), "simulator.exit.listen_host");
+        if (entry.listenPort() == exit.listenPort() && !entry.listenHost().equals(exit.listenHost())) {
+            throw new IllegalArgumentException(
+                "Single-port topology requires simulator.entry.listen_host and simulator.exit.listen_host to match"
+            );
         }
         requireNonBlank(entry.localCompId(), "simulator.entry.local_comp_id");
         requireNonBlank(entry.remoteCompId(), "simulator.entry.remote_comp_id");

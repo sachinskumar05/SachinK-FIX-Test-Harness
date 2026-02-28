@@ -59,6 +59,35 @@ class ArtioSimulatorTest {
     }
 
     @Test
+    void supportsSinglePortTopology(@TempDir Path tempDir) throws IOException {
+        int sharedPort = freePort();
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  provider: artio
+                  enabled: true
+                  entry:
+                    listen_host: 0.0.0.0
+                    listen_port: %d
+                  exit:
+                    listen_host: 0.0.0.0
+                    listen_port: %d
+                """.formatted(sharedPort, sharedPort)
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+        try (ArtioSimulator simulator = ArtioSimulator.start(config)) {
+            assertEquals(sharedPort, simulator.entryPort());
+            assertEquals(sharedPort, simulator.exitPort());
+            ArtioSimulator.Diagnostics diagnostics = simulator.diagnosticsSnapshot();
+            assertEquals(0, diagnostics.sessionsAcquired());
+            assertNull(diagnostics.lastError());
+        }
+    }
+
+    @Test
     void simulatorRequiresArtioProvider(@TempDir Path tempDir) throws IOException {
         int entryPort = freePort();
         int exitPort = freePort();

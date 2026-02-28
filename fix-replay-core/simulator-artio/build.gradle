@@ -10,6 +10,8 @@ def logbackVersion = rootProject.findProperty('logbackVersion')
 def awaitilityVersion = rootProject.findProperty('awaitilityVersion')
 
 dependencies {
+    implementation project(':fix-model')
+
     implementation "uk.co.real-logic:artio-core:${artioVersion}"
     implementation "uk.co.real-logic:artio-codecs:${artioVersion}"
     implementation "uk.co.real-logic:artio-session-codecs:${artioVersion}"
