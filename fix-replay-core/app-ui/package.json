@@ -1,0 +1,11 @@
+{
+  "name": "app-ui",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Placeholder for future NodeJS UI",
+  "scripts": {
+    "dev": "echo \"UI placeholder\"",
+    "build": "echo \"UI placeholder\"",
+    "test": "echo \"UI placeholder\""
+  }
+}

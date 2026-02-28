@@ -1,0 +1,24 @@
+plugins {
+    id 'application'
+}
+
+description = 'REST backend using Javalin'
+
+dependencies {
+    implementation project(':fix-runner')
+    implementation "io.javalin:javalin:${rootProject.ext.versions.javalin}"
+    implementation "com.fasterxml.jackson.core:jackson-databind:${rootProject.ext.versions.jackson}"
+    implementation "org.slf4j:slf4j-simple:2.0.13"
+}
+
+application {
+    mainClass = 'io.fixreplay.server.FixReplayServer'
+}
+
+tasks.named('run') {
+    jvmArgs("-Dfix.replay.version=${project.version}")
+}
+
+tasks.named('test') {
+    systemProperty 'fix.replay.version', project.version
+}

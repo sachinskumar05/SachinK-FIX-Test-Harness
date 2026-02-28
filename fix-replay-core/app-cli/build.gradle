@@ -1,0 +1,23 @@
+plugins {
+    id 'application'
+}
+
+description = 'Picocli command-line application'
+
+dependencies {
+    implementation project(':fix-runner')
+    implementation "info.picocli:picocli:${rootProject.ext.versions.picocli}"
+    implementation "com.fasterxml.jackson.core:jackson-databind:${rootProject.ext.versions.jackson}"
+}
+
+application {
+    mainClass = 'io.fixreplay.cli.FixReplayCli'
+}
+
+tasks.named('run') {
+    jvmArgs("-Dfix.replay.version=${project.version}")
+}
+
+tasks.named('test') {
+    systemProperty 'fix.replay.version', project.version
+}

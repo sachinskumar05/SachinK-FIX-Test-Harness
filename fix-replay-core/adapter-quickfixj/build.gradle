@@ -1,0 +1,5 @@
+description = 'Optional adapter for QuickFIX/J-backed online FIX IO'
+
+dependencies {
+    implementation project(':fix-runner')
+}

@@ -1,0 +1,5 @@
+description = 'FIX log scanning and extraction'
+
+dependencies {
+    implementation project(':fix-model')
+}

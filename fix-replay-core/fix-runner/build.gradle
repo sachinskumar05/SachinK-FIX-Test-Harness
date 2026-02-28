@@ -1,0 +1,10 @@
+description = 'Offline replay runner + online adapter interfaces'
+
+dependencies {
+    api project(':fix-model')
+    implementation project(':fix-loader')
+    implementation project(':fix-linker')
+    implementation project(':fix-compare')
+
+    compileOnly "io.micrometer:micrometer-core:${rootProject.ext.versions.micrometer}"
+}

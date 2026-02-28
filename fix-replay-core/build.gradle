@@ -1,0 +1,83 @@
+import org.gradle.api.artifacts.ProjectDependency
+
+plugins {
+    id 'base'
+}
+
+ext {
+    versions = [
+        junit    : '5.10.2',
+        junitPlatform: '1.10.2',
+        jackson  : '2.17.2',
+        picocli  : '4.7.6',
+        javalin  : '6.2.0',
+        micrometer: '1.13.2'
+    ]
+}
+
+allprojects {
+    group = rootProject.findProperty('group')
+    version = rootProject.findProperty('version')
+}
+
+subprojects { p ->
+    if (p.name != 'app-ui') {
+        apply plugin: 'java-library'
+
+
+        tasks.withType(JavaCompile).configureEach {
+            options.encoding = 'UTF-8'
+            options.release = 17
+        }
+
+        dependencies {
+            testImplementation "org.junit.jupiter:junit-jupiter-api:${rootProject.ext.versions.junit}"
+            testRuntimeOnly "org.junit.jupiter:junit-jupiter-engine:${rootProject.ext.versions.junit}"
+            testRuntimeOnly "org.junit.platform:junit-platform-launcher:${rootProject.ext.versions.junitPlatform}"
+        }
+
+        tasks.withType(Test).configureEach {
+            useJUnitPlatform()
+        }
+
+        tasks.register('formatCheck') {
+            group = 'verification'
+            description = 'Applies minimal formatting guards (no trailing whitespace, newline at EOF).'
+            doLast {
+                fileTree(projectDir) {
+                    include 'src/**/*.java', '*.gradle', '*.md'
+                    exclude 'build/**'
+                }.files.each { file ->
+                    def text = file.getText('UTF-8')
+                    def lines = text.split('\\r?\\n', -1)
+                    lines.eachWithIndex { line, idx ->
+                        if (line ==~ /.*[ \\t]+$/) {
+                            throw new GradleException("Trailing whitespace in ${file}:${idx + 1}")
+                        }
+                    }
+                    if (!text.endsWith('\n')) {
+                        throw new GradleException("Missing newline at EOF in ${file}")
+                    }
+                }
+            }
+        }
+
+        tasks.named('check') {
+            dependsOn tasks.named('formatCheck')
+        }
+
+        configurations.configureEach { cfg ->
+            cfg.withDependencies { deps ->
+                deps.withType(ProjectDependency).each { dep ->
+                    if (!p.name.startsWith('app-') && dep.path.startsWith(':app-')) {
+                        throw new GradleException("Illegal dependency direction: ${p.path} -> ${dep.path}")
+                    }
+                }
+            }
+        }
+    }
+}
+
+project(':app-ui') {
+    apply plugin: 'base'
+}

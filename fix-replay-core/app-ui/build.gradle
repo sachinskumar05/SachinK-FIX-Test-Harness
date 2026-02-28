@@ -1,0 +1,9 @@
+description = 'NodeJS UI placeholder module'
+
+tasks.register('uiPlaceholder') {
+    group = 'build'
+    description = 'Confirms UI placeholder folder exists.'
+    doLast {
+        println 'app-ui placeholder is present.'
+    }
+}

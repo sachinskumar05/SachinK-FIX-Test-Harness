@@ -1,0 +1,8 @@
+stages:
+  - verify
+
+verify:
+  stage: verify
+  image: eclipse-temurin:17
+  script:
+    - ./gradlew --no-daemon clean test

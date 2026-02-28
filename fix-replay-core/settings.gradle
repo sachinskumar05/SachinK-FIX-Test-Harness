@@ -1,0 +1,28 @@
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'fix-replay-core'
+
+include(
+    'fix-model',
+    'fix-loader',
+    'fix-linker',
+    'fix-compare',
+    'fix-runner',
+    'adapter-artio',
+    'adapter-quickfixj',
+    'app-cli',
+    'app-server',
+    'app-ui'
+)

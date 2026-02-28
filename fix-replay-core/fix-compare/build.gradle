@@ -1,0 +1,5 @@
+description = 'Configurable FIX comparison and diffing'
+
+dependencies {
+    implementation project(':fix-model')
+}

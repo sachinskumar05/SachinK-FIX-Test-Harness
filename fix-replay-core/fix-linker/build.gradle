@@ -1,0 +1,6 @@
+description = 'Deterministic linking and discovery'
+
+dependencies {
+    implementation project(':fix-model')
+    implementation project(':fix-loader')
+}
