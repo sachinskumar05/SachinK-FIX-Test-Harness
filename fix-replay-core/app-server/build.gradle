@@ -6,6 +6,9 @@ description = 'REST backend using Javalin'
 
 dependencies {
     implementation project(':fix-runner')
+    implementation project(':fix-loader')
+    implementation project(':fix-linker')
+    implementation project(':fix-compare')
     implementation "io.javalin:javalin:${rootProject.ext.versions.javalin}"
     implementation "com.fasterxml.jackson.core:jackson-databind:${rootProject.ext.versions.jackson}"
     implementation "org.slf4j:slf4j-simple:2.0.13"
