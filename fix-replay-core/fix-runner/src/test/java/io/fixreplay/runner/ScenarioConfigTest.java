@@ -2,6 +2,7 @@ package io.fixreplay.runner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -160,5 +161,84 @@ class ScenarioConfigTest {
         assertEquals(11001, config.sessions().entry().port());
         assertEquals("localhost", config.sessions().exit().host());
         assertEquals(11002, config.sessions().exit().port());
+    }
+
+    @Test
+    void parsesSnakeCaseFolderFieldsAndAdditionalSessionEndpointAliases(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input-folder"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected-folder"));
+        Path configFile = tempDir.resolve("scenario.yaml");
+
+        String yaml = """
+            input_folder: input-folder
+            expected_folder: expected-folder
+            sessions:
+              entry:
+                sender_comp_id: ENTRY
+                target_comp_id: QFIX
+                initiator_host: 127.0.0.1
+                initiator_port: 12001
+              exit:
+                sender_comp_id: EXIT
+                target_comp_id: QFIX
+                remote_host: localhost
+                remote_port: 12002
+            """;
+        Files.writeString(configFile, yaml);
+
+        ScenarioConfig config = ScenarioConfig.load(configFile);
+
+        assertEquals(input, config.inputFolder());
+        assertEquals(expected, config.expectedFolder());
+        assertEquals("127.0.0.1", config.sessions().entry().host());
+        assertEquals(12001, config.sessions().entry().port());
+        assertEquals("localhost", config.sessions().exit().host());
+        assertEquals(12002, config.sessions().exit().port());
+    }
+
+    @Test
+    void resolvesTopLevelMutationFallbackWhenSimulatorMutationMissing(@TempDir Path tempDir) throws IOException {
+        Files.createDirectory(tempDir.resolve("input"));
+        Files.createDirectory(tempDir.resolve("expected"));
+        Path configFile = tempDir.resolve("scenario.yaml");
+
+        String yaml = """
+            inputFolder: input
+            expectedFolder: expected
+            simulator:
+              provider: artio
+              enabled: true
+              entry:
+                listen_port: 7001
+              exit:
+                listen_port: 7002
+            mutation:
+              enabled: true
+              strict_mode: true
+              rules_file: ./rules.yaml
+            """;
+        Files.writeString(configFile, yaml);
+
+        ScenarioConfig config = ScenarioConfig.load(configFile);
+
+        assertTrue(config.simulator().mutation().enabled());
+        assertTrue(config.simulator().mutation().strictMode());
+        assertEquals(tempDir.resolve("rules.yaml").toAbsolutePath().normalize(), config.simulator().mutation().rulesFile());
+    }
+
+    @Test
+    void resolveInputFilesFailsClearlyWhenInputFolderMissingInConfig(@TempDir Path tempDir) throws IOException {
+        Files.createDirectory(tempDir.resolve("expected"));
+        Path configFile = tempDir.resolve("scenario.yaml");
+
+        String yaml = """
+            expectedFolder: expected
+            """;
+        Files.writeString(configFile, yaml);
+
+        ScenarioConfig config = ScenarioConfig.load(configFile);
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, config::resolveInputFiles);
+        assertTrue(error.getMessage().contains("inputFolder"));
     }
 }

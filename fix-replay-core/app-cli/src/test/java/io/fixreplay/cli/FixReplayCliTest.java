@@ -369,6 +369,61 @@ class FixReplayCliTest {
     }
 
     @Test
+    void applyScenarioInitiatorTransportDefaultsIgnoresBlankHostAndNonPositivePort() {
+        ScenarioConfig scenario = ScenarioConfig.builder()
+            .sessions(
+                new ScenarioConfig.Sessions(
+                    new ScenarioConfig.SessionIdentity("ENTRY", "QFIX", " ", 0),
+                    new ScenarioConfig.SessionIdentity("EXIT", "QFIX", null, -1)
+                )
+            )
+            .build();
+
+        Map<String, String> defaults = FixReplayCli.applyScenarioInitiatorTransportDefaults(scenario, Map.of("custom", "v"));
+
+        assertEquals("v", defaults.get("custom"));
+        assertTrue(!defaults.containsKey("artio.host"));
+        assertTrue(!defaults.containsKey("artio.port"));
+        assertTrue(!defaults.containsKey("artio.exitHost"));
+        assertTrue(!defaults.containsKey("artio.exitPort"));
+    }
+
+    @Test
+    void applySimulatorTransportDefaultsDoesNotOverrideScenarioDerivedTransportKeys(@TempDir Path tempDir) throws IOException {
+        Files.createDirectory(tempDir.resolve("input"));
+        Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "simulator:",
+                "  provider: artio",
+                "  enabled: true",
+                "  entry:",
+                "    listen_host: 0.0.0.0",
+                "    listen_port: 7101",
+                "  exit:",
+                "    listen_host: 0.0.0.0",
+                "    listen_port: 7102"
+            ) + "\n"
+        );
+
+        ArtioSimulatorConfig simulatorConfig = ArtioSimulatorConfig.fromScenario(ScenarioConfig.load(scenario));
+        Map<String, String> merged = FixReplayCli.applySimulatorTransportDefaults(
+            Map.of("artio.host", "192.168.10.5", "artio.port", "62000"),
+            simulatorConfig
+        );
+
+        assertEquals("192.168.10.5", merged.get("artio.host"));
+        assertEquals("62000", merged.get("artio.port"));
+        assertEquals("127.0.0.1", merged.get("artio.exitHost"));
+        assertEquals("7102", merged.get("artio.exitPort"));
+    }
+
+    @Test
     void resolveTransportClassNameDefaultsToArtioWhenStartSimulatorWithArtioProvider() {
         ScenarioConfig scenario = ScenarioConfig.builder()
             .simulator(new ScenarioConfig.Simulator("artio", true, null, null, null, null, null, null, null, null))
