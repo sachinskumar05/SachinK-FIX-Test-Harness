@@ -9,7 +9,6 @@ import io.fixreplay.model.FixMessage;
 import io.fixreplay.runner.FixTransport;
 import io.fixreplay.runner.TransportSessionConfig;
 import io.javalin.Javalin;
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -32,25 +31,22 @@ class FixReplayServerTest {
     void scanEndpointReturnsSummary(@TempDir Path tempDir) throws Exception {
         Path log = tempDir.resolve("scan.log");
         Files.writeString(
-            log,
-            String.join(
-                "\n",
-                "2026-01-01 12:00:00.000 IN [8=FIX.4.4^A35=D^A49=BUY^A56=SELL^A11=ORD-1^A10=001^A]",
-                "noise line",
-                "2026-01-01 12:00:01.000 OUT 8=FIX.4.4|35=8|49=SELL|56=BUY|37=EX-1|10=002|"
-            ) + "\n"
-        );
+                log,
+                String.join(
+                        "\n",
+                        "2026-01-01 12:00:00.000 IN [8=FIX.4.4^A35=D^A49=BUY^A56=SELL^A11=ORD-1^A10=001^A]",
+                        "noise line",
+                        "2026-01-01 12:00:01.000 OUT 8=FIX.4.4|35=8|49=SELL|56=BUY|37=EX-1|10=002|") + "\n");
 
         try (FixReplayServer server = new FixReplayServer()) {
             Javalin app = server.start(0);
             HttpClient client = HttpClient.newHttpClient();
 
             JsonNode response = postJson(
-                client,
-                app.port(),
-                "/api/scan",
-                "{\"path\":\"" + escapeJson(log.toString()) + "\"}"
-            );
+                    client,
+                    app.port(),
+                    "/api/scan",
+                    "{\"path\":\"" + escapeJson(log.toString()) + "\"}");
 
             assertEquals(2, response.path("messageCount").asInt());
             assertEquals(1, response.path("msgTypeDistribution").path("D").asInt());
@@ -68,25 +64,23 @@ class FixReplayServerTest {
         Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
         Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
         Files.writeString(
-            scenario,
-            String.join(
-                "\n",
-                "inputFolder: placeholder-in",
-                "expectedFolder: placeholder-out",
-                "msgTypeFilter: [D,8]"
-            ) + "\n"
-        );
+                scenario,
+                String.join(
+                        "\n",
+                        "inputFolder: placeholder-in",
+                        "expectedFolder: placeholder-out",
+                        "msgTypeFilter: [D,8]") + "\n");
 
         try (FixReplayServer server = new FixReplayServer()) {
             Javalin app = server.start(0);
             HttpClient client = HttpClient.newHttpClient();
 
             String body = "{"
-                + "\"inputFolder\":\"" + escapeJson(input.toString()) + "\","
-                + "\"expectedFolder\":\"" + escapeJson(expected.toString()) + "\","
-                + "\"scenarioPath\":\"" + escapeJson(scenario.toString()) + "\","
-                + "\"cacheDir\":\"" + escapeJson(cache.toString()) + "\""
-                + "}";
+                    + "\"inputFolder\":\"" + escapeJson(input.toString()) + "\","
+                    + "\"expectedFolder\":\"" + escapeJson(expected.toString()) + "\","
+                    + "\"scenarioPath\":\"" + escapeJson(scenario.toString()) + "\","
+                    + "\"cacheDir\":\"" + escapeJson(cache.toString()) + "\""
+                    + "}";
             JsonNode response = postJson(client, app.port(), "/api/prepare", body);
 
             assertEquals(1, response.path("counts").path("sessions").asInt());
@@ -106,26 +100,23 @@ class FixReplayServerTest {
         Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
         Files.writeString(actual.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=AAPL|10=021|\n");
         Files.writeString(
-            scenario,
-            String.join(
-                "\n",
-                "inputFolder: input",
-                "expectedFolder: expected",
-                "actualFolder: actual",
-                "msgTypeFilter: [D,8]"
-            ) + "\n"
-        );
+                scenario,
+                String.join(
+                        "\n",
+                        "inputFolder: input",
+                        "expectedFolder: expected",
+                        "actualFolder: actual",
+                        "msgTypeFilter: [D,8]") + "\n");
 
         try (FixReplayServer server = new FixReplayServer()) {
             Javalin app = server.start(0);
             HttpClient client = HttpClient.newHttpClient();
 
             JsonNode response = postJson(
-                client,
-                app.port(),
-                "/api/run-offline",
-                "{\"scenarioPath\":\"" + escapeJson(scenario.toString()) + "\"}"
-            );
+                    client,
+                    app.port(),
+                    "/api/run-offline",
+                    "{\"scenarioPath\":\"" + escapeJson(scenario.toString()) + "\"}");
 
             assertTrue(response.path("diffReport").path("failedMessages").asInt() >= 1);
             assertTrue(response.has("linkReports"));
@@ -141,14 +132,12 @@ class FixReplayServerTest {
         Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
         Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
         Files.writeString(
-            scenario,
-            String.join(
-                "\n",
-                "inputFolder: input",
-                "expectedFolder: expected",
-                "msgTypeFilter: [D,8]"
-            ) + "\n"
-        );
+                scenario,
+                String.join(
+                        "\n",
+                        "inputFolder: input",
+                        "expectedFolder: expected",
+                        "msgTypeFilter: [D,8]") + "\n");
 
         ScriptedTransport.reset(List.of(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=099|", '|')));
 
@@ -157,11 +146,11 @@ class FixReplayServerTest {
             HttpClient client = HttpClient.newHttpClient();
 
             String body = "{"
-                + "\"scenarioPath\":\"" + escapeJson(scenario.toString()) + "\","
-                + "\"transportClass\":\"" + escapeJson(ScriptedTransport.class.getName()) + "\","
-                + "\"transportProperties\":{\"custom\":\"value\"},"
-                + "\"async\":true"
-                + "}";
+                    + "\"scenarioPath\":\"" + escapeJson(scenario.toString()) + "\","
+                    + "\"transportClass\":\"" + escapeJson(ScriptedTransport.class.getName()) + "\","
+                    + "\"transportProperties\":{\"custom\":\"value\"},"
+                    + "\"async\":true"
+                    + "}";
             HttpResponse<String> submitted = postJsonRaw(client, app.port(), "/api/run-online", body);
             assertEquals(202, submitted.statusCode());
 
@@ -179,11 +168,12 @@ class FixReplayServerTest {
     private static JsonNode awaitCompletion(HttpClient client, int port, String jobId) throws Exception {
         for (int i = 0; i < 40; i++) {
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/job/" + jobId))
-                .timeout(Duration.ofSeconds(2))
-                .GET()
-                .build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                    .uri(URI.create("http://localhost:" + port + "/api/job/" + jobId))
+                    .timeout(Duration.ofSeconds(2))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request,
+                    HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             assertEquals(200, response.statusCode());
             JsonNode body = JSON.readTree(response.body());
             String status = body.path("status").asText();
@@ -201,13 +191,14 @@ class FixReplayServerTest {
         return JSON.readTree(response.body());
     }
 
-    private static HttpResponse<String> postJsonRaw(HttpClient client, int port, String path, String body) throws Exception {
+    private static HttpResponse<String> postJsonRaw(HttpClient client, int port, String path, String body)
+            throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + path))
-            .timeout(Duration.ofSeconds(10))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-            .build();
+                .uri(URI.create("http://localhost:" + port + path))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
         return client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
     }
 
@@ -220,7 +211,8 @@ class FixReplayServerTest {
         private static volatile List<FixMessage> responses = List.of();
         private static volatile Map<String, String> lastProperties = Map.of();
 
-        private Consumer<FixMessage> callback = ignored -> {};
+        private Consumer<FixMessage> callback = ignored -> {
+        };
         private int cursor;
 
         public static void reset(List<FixMessage> scriptedResponses) {
@@ -253,4 +245,3 @@ class FixReplayServerTest {
         }
     }
 }
-

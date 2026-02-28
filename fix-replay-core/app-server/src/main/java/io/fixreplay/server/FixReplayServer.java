@@ -111,7 +111,8 @@ public final class FixReplayServer implements AutoCloseable {
             Path cacheDir = optionalPath(request.cacheDir());
 
             if (isAsync(request.async(), false)) {
-                submitAsync(ctx, "prepare", () -> orchestrator.prepare(inputFolder, expectedFolder, scenarioPath, cacheDir));
+                submitAsync(ctx, "prepare",
+                        () -> orchestrator.prepare(inputFolder, expectedFolder, scenarioPath, cacheDir));
             } else {
                 ctx.json(orchestrator.prepare(inputFolder, expectedFolder, scenarioPath, cacheDir));
             }
@@ -140,14 +141,13 @@ public final class FixReplayServer implements AutoCloseable {
         try {
             RunOnlineRequest request = parseBody(ctx, RunOnlineRequest.class);
             ServerOrchestrator.RunOnlineOptions options = new ServerOrchestrator.RunOnlineOptions(
-                requiredPath(request.scenarioPath(), "scenarioPath"),
-                requiredText(request.transportClass(), "transportClass"),
-                request.transportProperties(),
-                optionalPath(request.transportConfigPath()),
-                request.receiveTimeoutMs(),
-                request.queueCapacity(),
-                optionalPath(request.junitPath())
-            );
+                    requiredPath(request.scenarioPath(), "scenarioPath"),
+                    requiredText(request.transportClass(), "transportClass"),
+                    request.transportProperties(),
+                    optionalPath(request.transportConfigPath()),
+                    request.receiveTimeoutMs(),
+                    request.queueCapacity(),
+                    optionalPath(request.junitPath()));
 
             if (isAsync(request.async(), true)) {
                 submitAsync(ctx, "run-online", () -> orchestrator.runOnline(options));
@@ -162,9 +162,8 @@ public final class FixReplayServer implements AutoCloseable {
     private void handleJobStatus(Context ctx) {
         String jobId = ctx.pathParam("id");
         jobStore.get(jobId).ifPresentOrElse(
-            snapshot -> ctx.json(snapshot),
-            () -> ctx.status(404).json(error("Job not found: " + jobId))
-        );
+                snapshot -> ctx.json(snapshot),
+                () -> ctx.status(404).json(error("Job not found: " + jobId)));
     }
 
     private <T> T parseBody(Context ctx, Class<T> type) throws IOException {
@@ -189,11 +188,9 @@ public final class FixReplayServer implements AutoCloseable {
     }
 
     private void handleFailure(Context ctx, Exception failure) {
-        if (
-            failure instanceof IllegalArgumentException ||
-            failure instanceof IOException ||
-            failure instanceof ReflectiveOperationException
-        ) {
+        if (failure instanceof IllegalArgumentException ||
+                failure instanceof IOException ||
+                failure instanceof ReflectiveOperationException) {
             ctx.status(400).json(error(failure.getMessage()));
             return;
         }
@@ -267,9 +264,10 @@ public final class FixReplayServer implements AutoCloseable {
     }
 
     private static ObjectMapper defaultObjectMapper() {
-        return new ObjectMapper()
-            .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
-            .configure(com.fasterxml.jackson.databind.MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true);
+        return com.fasterxml.jackson.databind.json.JsonMapper.builder()
+                .enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                .enable(com.fasterxml.jackson.databind.MapperFeature.SORT_PROPERTIES_ALPHABETICALLY)
+                .build();
     }
 
     public static void main(String[] args) {
@@ -277,7 +275,9 @@ public final class FixReplayServer implements AutoCloseable {
         if (args.length > 0) {
             port = Integer.parseInt(args[0]);
         }
-        new FixReplayServer().start(port);
+        FixReplayServer server = new FixReplayServer();
+        server.start(port);
+        Runtime.getRuntime().addShutdownHook(new Thread(server::close));
     }
 
     @FunctionalInterface
@@ -288,22 +288,21 @@ public final class FixReplayServer implements AutoCloseable {
     private record ScanRequest(String path, Boolean async) {
     }
 
-    private record PrepareRequest(String inputFolder, String expectedFolder, String scenarioPath, String cacheDir, Boolean async) {
+    private record PrepareRequest(String inputFolder, String expectedFolder, String scenarioPath, String cacheDir,
+            Boolean async) {
     }
 
     private record RunOfflineRequest(String scenarioPath, String junitPath, Boolean async) {
     }
 
     private record RunOnlineRequest(
-        String scenarioPath,
-        String transportClass,
-        Map<String, String> transportProperties,
-        String transportConfigPath,
-        Long receiveTimeoutMs,
-        Integer queueCapacity,
-        String junitPath,
-        Boolean async
-    ) {
+            String scenarioPath,
+            String transportClass,
+            Map<String, String> transportProperties,
+            String transportConfigPath,
+            Long receiveTimeoutMs,
+            Integer queueCapacity,
+            String junitPath,
+            Boolean async) {
     }
 }
-

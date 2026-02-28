@@ -50,41 +50,39 @@ class ArtioFixTransportTest {
     void closesGatewayIfConnectFails() {
         FakeArtioGateway gateway = new FakeArtioGateway();
         gateway.connectFailure = new IllegalStateException("boom");
-        ArtioFixTransport transport = new ArtioFixTransport(() -> gateway);
-
-        assertThrows(IllegalStateException.class, () -> transport.connect(sessionConfig()));
-        assertTrue(gateway.closed);
+        try (ArtioFixTransport transport = new ArtioFixTransport(() -> gateway)) {
+            assertThrows(IllegalStateException.class, () -> transport.connect(sessionConfig()));
+            assertTrue(gateway.closed);
+        }
     }
 
     @Test
     void rejectsSendBeforeConnect() {
-        ArtioFixTransport transport = new ArtioFixTransport(() -> new FakeArtioGateway());
-
-        assertThrows(
-            IllegalStateException.class,
-            () -> transport.send(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|10=001|", '|'))
-        );
+        try (ArtioFixTransport transport = new ArtioFixTransport(() -> new FakeArtioGateway())) {
+            assertThrows(
+                    IllegalStateException.class,
+                    () -> transport.send(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|10=001|", '|')));
+        }
     }
 
     private static TransportSessionConfig sessionConfig() {
         return new TransportSessionConfig(
-            new SessionKey("ENTRY", "VENUE"),
-            new SessionKey("EXIT", "ENTRY"),
-            Map.of(
-                "artio.host",
-                "127.0.0.1",
-                "artio.port",
-                "7001",
-                "artio.heartbeatSeconds",
-                "15",
-                "artio.replyTimeoutMs",
-                "4000"
-            )
-        );
+                new SessionKey("ENTRY", "VENUE"),
+                new SessionKey("EXIT", "ENTRY"),
+                Map.of(
+                        "artio.host",
+                        "127.0.0.1",
+                        "artio.port",
+                        "7001",
+                        "artio.heartbeatSeconds",
+                        "15",
+                        "artio.replyTimeoutMs",
+                        "4000"));
     }
 
     private static final class FakeArtioGateway implements ArtioGateway {
-        private Consumer<FixMessage> receiveHandler = ignored -> {};
+        private Consumer<FixMessage> receiveHandler = ignored -> {
+        };
         private final List<FixMessage> sentMessages = new ArrayList<>();
         private ArtioTransportConfig connectedConfig;
         private RuntimeException connectFailure;
@@ -118,4 +116,3 @@ class ArtioFixTransportTest {
         }
     }
 }
-

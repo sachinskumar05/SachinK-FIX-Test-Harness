@@ -19,3 +19,4 @@ build/
 target/
 node_modules/
 dist/
+*.class
