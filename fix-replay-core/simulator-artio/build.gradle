@@ -11,6 +11,7 @@ def awaitilityVersion = rootProject.findProperty('awaitilityVersion')
 
 dependencies {
     implementation project(':fix-model')
+    implementation project(':fix-runner')
 
     implementation "uk.co.real-logic:artio-core:${artioVersion}"
     implementation "uk.co.real-logic:artio-codecs:${artioVersion}"

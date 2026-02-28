@@ -19,6 +19,8 @@ import io.fixreplay.runner.OnlineRunnerConfig;
 import io.fixreplay.runner.ScenarioConfig;
 import io.fixreplay.runner.SessionKey;
 import io.fixreplay.runner.TransportSessionConfig;
+import io.fixreplay.simulator.artio.ArtioSimulator;
+import io.fixreplay.simulator.artio.ArtioSimulatorConfig;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -57,6 +59,8 @@ public final class FixReplayCli implements Callable<Integer> {
     private static final int EXIT_OK = 0;
     private static final int EXIT_COMPARE_FAIL = 2;
     private static final int EXIT_CONFIG_ERROR = 3;
+    private static final String DEFAULT_ARTIO_TRANSPORT_CLASS = "io.fixreplay.adapter.artio.ArtioFixTransport";
+    private static final long SIMULATOR_READY_POLL_INTERVAL_MS = 25L;
     private static final ObjectMapper JSON = new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
 
     @Override
@@ -258,7 +262,10 @@ public final class FixReplayCli implements Callable<Integer> {
         @Option(names = "--scenario", required = true, description = "Scenario YAML/JSON")
         private Path scenarioPath;
 
-        @Option(names = "--transport-class", required = true, description = "Fully qualified FixTransport implementation class")
+        @Option(
+            names = "--transport-class",
+            description = "Fully qualified FixTransport implementation class (optional when --start-simulator uses Artio)"
+        )
         private String transportClassName;
 
         @Option(
@@ -283,8 +290,23 @@ public final class FixReplayCli implements Callable<Integer> {
         @Option(names = "--junit", defaultValue = "junit.xml", description = "JUnit XML output path")
         private Path junitOut;
 
+        @Option(
+            names = "--start-simulator",
+            defaultValue = "false",
+            description = "Start embedded Artio simulator when scenario.simulator is enabled with provider=artio"
+        )
+        private boolean startSimulator;
+
+        @Option(
+            names = "--simulator-ready-timeout-ms",
+            defaultValue = "15000",
+            description = "Timeout waiting for embedded simulator readiness"
+        )
+        private long simulatorReadyTimeoutMs;
+
         @Override
         public Integer call() {
+            EmbeddedSimulatorHandle simulatorHandle = EmbeddedSimulatorHandle.noop(Map.of());
             try {
                 if (receiveTimeoutMs <= 0) {
                     throw new IllegalArgumentException("--receive-timeout-ms must be > 0");
@@ -292,9 +314,20 @@ public final class FixReplayCli implements Callable<Integer> {
                 if (queueCapacity <= 0) {
                     throw new IllegalArgumentException("--queue-capacity must be > 0");
                 }
+                if (startSimulator && simulatorReadyTimeoutMs <= 0) {
+                    throw new IllegalArgumentException("--simulator-ready-timeout-ms must be > 0 when --start-simulator is set");
+                }
 
                 ScenarioConfig scenarioConfig = ScenarioConfig.load(scenarioPath);
+                String effectiveTransportClassName = resolveTransportClassName(transportClassName, startSimulator, scenarioConfig);
                 Map<String, String> mergedTransportProperties = mergeTransportProperties(transportConfigFile, transportProperties);
+                simulatorHandle = maybeStartSimulator(
+                    scenarioConfig,
+                    mergedTransportProperties,
+                    startSimulator,
+                    simulatorReadyTimeoutMs
+                );
+                Map<String, String> effectiveTransportProperties = simulatorHandle.transportProperties();
 
                 Map<SessionKey, Path> inputFiles = scenarioConfig.resolveInputFiles();
                 Map<SessionKey, Path> expectedFiles = scenarioConfig.resolveExpectedFiles();
@@ -331,11 +364,11 @@ public final class FixReplayCli implements Callable<Integer> {
                     List<FixMessage> entryMessages = loadMessages(scanner, inputPath, scenarioConfig.msgTypeFilter());
                     List<FixMessage> expectedMessages = loadMessages(scanner, expectedPath, scenarioConfig.msgTypeFilter());
 
-                    FixTransport transport = instantiateTransport(transportClassName);
+                    FixTransport transport = instantiateTransport(effectiveTransportClassName);
                     TransportSessionConfig transportSessionConfig = new TransportSessionConfig(
                         session,
                         reverseSession(session),
-                        mergedTransportProperties
+                        effectiveTransportProperties
                     );
                     OnlineRunnerConfig runnerConfig = new OnlineRunnerConfig(
                         scenarioConfig.linkerConfig(),
@@ -426,6 +459,12 @@ public final class FixReplayCli implements Callable<Integer> {
             } catch (IOException | ReflectiveOperationException | IllegalArgumentException runFailure) {
                 System.err.println(runFailure.getMessage());
                 return EXIT_CONFIG_ERROR;
+            } finally {
+                try {
+                    simulatorHandle.close();
+                } catch (RuntimeException stopFailure) {
+                    System.err.println("Failed to stop embedded simulator: " + stopFailure.getMessage());
+                }
             }
         }
     }
@@ -519,6 +558,137 @@ public final class FixReplayCli implements Callable<Integer> {
         return Map.copyOf(merged);
     }
 
+    static String resolveTransportClassName(
+        String requestedTransportClassName,
+        boolean startSimulator,
+        ScenarioConfig scenarioConfig
+    ) {
+        if (requestedTransportClassName != null && !requestedTransportClassName.isBlank()) {
+            return requestedTransportClassName.trim();
+        }
+        if (
+            startSimulator &&
+            scenarioConfig.simulator().enabled() &&
+            "artio".equalsIgnoreCase(defaultString(scenarioConfig.simulator().provider(), "none"))
+        ) {
+            return DEFAULT_ARTIO_TRANSPORT_CLASS;
+        }
+        throw new IllegalArgumentException(
+            "Missing required argument: --transport-class (or use --start-simulator with scenario.simulator.provider=artio)"
+        );
+    }
+
+    static Map<String, String> applySimulatorTransportDefaults(
+        Map<String, String> transportProperties,
+        ArtioSimulatorConfig simulatorConfig
+    ) {
+        Objects.requireNonNull(transportProperties, "transportProperties");
+        Objects.requireNonNull(simulatorConfig, "simulatorConfig");
+
+        Map<String, String> merged = new LinkedHashMap<>(transportProperties);
+        merged.putIfAbsent("artio.host", connectHostFromListenHost(simulatorConfig.entry().listenHost()));
+        merged.putIfAbsent("artio.port", Integer.toString(simulatorConfig.entry().listenPort()));
+        merged.putIfAbsent("artio.exitHost", connectHostFromListenHost(simulatorConfig.exit().listenHost()));
+        merged.putIfAbsent("artio.exitPort", Integer.toString(simulatorConfig.exit().listenPort()));
+        return Map.copyOf(merged);
+    }
+
+    private static EmbeddedSimulatorHandle maybeStartSimulator(
+        ScenarioConfig scenarioConfig,
+        Map<String, String> transportProperties,
+        boolean startSimulator,
+        long readyTimeoutMs
+    ) {
+        if (!startSimulator) {
+            return EmbeddedSimulatorHandle.noop(transportProperties);
+        }
+
+        ScenarioConfig.Simulator simulatorSpec = scenarioConfig.simulator();
+        if (!simulatorSpec.enabled()) {
+            return EmbeddedSimulatorHandle.noop(transportProperties);
+        }
+
+        String provider = simulatorSpec.provider() == null ? "none" : simulatorSpec.provider().trim();
+        if (!"artio".equalsIgnoreCase(provider)) {
+            return EmbeddedSimulatorHandle.noop(transportProperties);
+        }
+
+        ArtioSimulatorConfig simulatorConfig;
+        try {
+            simulatorConfig = ArtioSimulatorConfig.fromScenario(scenarioConfig);
+        } catch (RuntimeException configFailure) {
+            throw new IllegalArgumentException("Invalid simulator configuration: " + configFailure.getMessage(), configFailure);
+        }
+
+        ArtioSimulator simulator;
+        try {
+            simulator = ArtioSimulator.start(simulatorConfig);
+        } catch (RuntimeException startupFailure) {
+            throw new IllegalArgumentException(
+                "Failed to start embedded Artio simulator: " + startupFailure.getMessage(),
+                startupFailure
+            );
+        }
+
+        try {
+            awaitSimulatorReady(simulator, readyTimeoutMs);
+        } catch (RuntimeException readinessFailure) {
+            try {
+                simulator.stop();
+            } catch (RuntimeException stopFailure) {
+                readinessFailure.addSuppressed(stopFailure);
+            }
+            throw readinessFailure;
+        }
+
+        Map<String, String> effectiveProperties = applySimulatorTransportDefaults(transportProperties, simulatorConfig);
+        return new EmbeddedSimulatorHandle(simulator, effectiveProperties);
+    }
+
+    private static void awaitSimulatorReady(ArtioSimulator simulator, long timeoutMs) {
+        long deadlineNanos = System.nanoTime() + Duration.ofMillis(timeoutMs).toNanos();
+        while (System.nanoTime() < deadlineNanos) {
+            if (simulator.isReady()) {
+                return;
+            }
+            ArtioSimulator.Diagnostics diagnostics = simulator.diagnosticsSnapshot();
+            if (diagnostics.lastError() != null) {
+                throw new IllegalArgumentException("Embedded simulator failed during startup: " + diagnostics.lastError());
+            }
+            try {
+                Thread.sleep(SIMULATOR_READY_POLL_INTERVAL_MS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalArgumentException("Interrupted while waiting for embedded simulator readiness", interrupted);
+            }
+        }
+        ArtioSimulator.Diagnostics diagnostics = simulator.diagnosticsSnapshot();
+        throw new IllegalArgumentException(
+            "Timed out waiting for embedded simulator readiness after " +
+                timeoutMs +
+                "ms (entryAcquired=" +
+                diagnostics.entrySessionAcquired() +
+                ", exitAcquired=" +
+                diagnostics.exitSessionAcquired() +
+                ", entryConnected=" +
+                diagnostics.entrySessionConnected() +
+                ", exitConnected=" +
+                diagnostics.exitSessionConnected() +
+                ")"
+        );
+    }
+
+    private static String connectHostFromListenHost(String listenHost) {
+        if (listenHost == null || listenHost.isBlank()) {
+            return "localhost";
+        }
+        String host = listenHost.trim();
+        if ("0.0.0.0".equals(host) || "::".equals(host) || "[::]".equals(host)) {
+            return "127.0.0.1";
+        }
+        return host;
+    }
+
     private static Map<String, String> loadTransportConfig(Path configFile) throws IOException {
         if (!Files.isRegularFile(configFile)) {
             throw new IllegalArgumentException("Transport config file does not exist: " + configFile);
@@ -553,7 +723,13 @@ public final class FixReplayCli implements Callable<Integer> {
             .msgTypeFilter(base.msgTypeFilter())
             .linkerConfig(base.linkerConfig())
             .compareConfig(base.compareConfig())
-            .sessionMappingRules(base.sessionMappingRules());
+            .sessionMappingRules(base.sessionMappingRules())
+            .sessions(base.sessions())
+            .simulator(base.simulator())
+            .scenarioBaseDirectory(base.scenarioBaseDirectory());
+        if (base.hasCacheFolder()) {
+            builder.cacheFolder(base.cacheFolder());
+        }
         if (actualFolder != null) {
             builder.actualFolder(actualFolder);
         }
@@ -658,5 +834,30 @@ public final class FixReplayCli implements Callable<Integer> {
             Files.createDirectories(parent);
         }
         Files.writeString(out, content);
+    }
+
+    private static final class EmbeddedSimulatorHandle implements AutoCloseable {
+        private final ArtioSimulator simulator;
+        private final Map<String, String> transportProperties;
+
+        private EmbeddedSimulatorHandle(ArtioSimulator simulator, Map<String, String> transportProperties) {
+            this.simulator = simulator;
+            this.transportProperties = Map.copyOf(transportProperties);
+        }
+
+        static EmbeddedSimulatorHandle noop(Map<String, String> transportProperties) {
+            return new EmbeddedSimulatorHandle(null, transportProperties);
+        }
+
+        Map<String, String> transportProperties() {
+            return transportProperties;
+        }
+
+        @Override
+        public void close() {
+            if (simulator != null) {
+                simulator.stop();
+            }
+        }
     }
 }

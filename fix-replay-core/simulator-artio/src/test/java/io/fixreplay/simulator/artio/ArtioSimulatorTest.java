@@ -105,9 +105,8 @@ class ArtioSimulatorTest {
                 """.formatted(entryPort, exitPort)
         );
 
-        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
-        IllegalStateException expected = assertThrows(IllegalStateException.class, () -> ArtioSimulator.start(config));
-        assertTrue(expected.getMessage().contains("Unsupported simulator provider"));
+        IllegalArgumentException expected = assertThrows(IllegalArgumentException.class, () -> ArtioSimulatorConfig.load(scenario));
+        assertTrue(expected.getMessage().contains("simulator.provider must be 'artio'"));
     }
 
     private static int freePort() throws IOException {

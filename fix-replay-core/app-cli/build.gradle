@@ -9,6 +9,8 @@ dependencies {
     implementation project(':fix-loader')
     implementation project(':fix-linker')
     implementation project(':fix-compare')
+    implementation project(':simulator-artio')
+    implementation project(':adapter-artio')
     implementation "info.picocli:picocli:${rootProject.ext.versions.picocli}"
     implementation "com.fasterxml.jackson.core:jackson-databind:${rootProject.ext.versions.jackson}"
 }

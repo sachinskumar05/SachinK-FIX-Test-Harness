@@ -22,7 +22,9 @@ class ArtioSimulatorConfigTest {
                 sessions:
                   entry:
                     sender_comp_id: ENTRY_RACOMPID
+                    target_comp_id: FIX_GATEWAY
                   exit:
+                    sender_comp_id: FIX_GATEWAY
                     target_comp_id: EXIT_RACOMPID
                 simulator:
                   provider: artio
@@ -60,6 +62,74 @@ class ArtioSimulatorConfigTest {
         assertEquals(tempDir.resolve("cache-artifacts").toAbsolutePath().normalize(), config.storageDirs().workDir());
         assertEquals(config.storageDirs().workDir().resolve("aeron"), config.storageDirs().aeronDir());
         assertEquals(config.storageDirs().workDir().resolve("logs"), config.storageDirs().logDir());
+        assertTrue(config.storageDirs().deleteOnStart());
+        assertFalse(config.storageDirs().deleteOnStop());
+    }
+
+    @Test
+    void defaultsSimulatorCompIdsFromSessionsSection(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                sessions:
+                  entry:
+                    sender_comp_id: ENTRY_CUSTOM
+                    target_comp_id: GATEWAY_ENTRY
+                  exit:
+                    sender_comp_id: GATEWAY_EXIT
+                    target_comp_id: EXIT_CUSTOM
+                simulator:
+                  provider: artio
+                  enabled: true
+                  entry:
+                    listen_port: 7401
+                  exit:
+                    listen_port: 7402
+                io:
+                  mode: online
+                """
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+
+        assertEquals("GATEWAY_ENTRY", config.entry().localCompId());
+        assertEquals("ENTRY_CUSTOM", config.entry().remoteCompId());
+        assertEquals("GATEWAY_EXIT", config.exit().localCompId());
+        assertEquals("EXIT_CUSTOM", config.exit().remoteCompId());
+    }
+
+    @Test
+    void derivesMissingSimulatorCompIdsFromSessionsPerspective(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                sessions:
+                  entry:
+                    sender_comp_id: ENTRY_RACOMPID
+                    target_comp_id: FIX_GATEWAY
+                  exit:
+                    sender_comp_id: FIX_GATEWAY
+                    target_comp_id: EXIT_RACOMPID
+                simulator:
+                  provider: artio
+                  enabled: true
+                  entry:
+                    listen_port: 7401
+                    local_comp_id: ENTRY_LOCAL_OVERRIDE
+                  exit:
+                    listen_port: 7402
+                    remote_comp_id: EXIT_REMOTE_OVERRIDE
+                """
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+
+        assertEquals("ENTRY_LOCAL_OVERRIDE", config.entry().localCompId());
+        assertEquals("ENTRY_RACOMPID", config.entry().remoteCompId());
+        assertEquals("FIX_GATEWAY", config.exit().localCompId());
+        assertEquals("EXIT_REMOTE_OVERRIDE", config.exit().remoteCompId());
     }
 
     @Test
@@ -104,6 +174,44 @@ class ArtioSimulatorConfigTest {
     }
 
     @Test
+    void rejectsEnabledSimulatorWhenProviderIsNotArtio(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  provider: quickfixj
+                  enabled: true
+                  entry:
+                    listen_port: 7001
+                  exit:
+                    listen_port: 7002
+                """
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> ArtioSimulatorConfig.load(scenario));
+        assertTrue(error.getMessage().contains("simulator.provider must be 'artio'"));
+    }
+
+    @Test
+    void rejectsEnabledSimulatorWhenPortsMissing(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  provider: artio
+                  enabled: true
+                  entry:
+                    listen_port: 7001
+                """
+        );
+
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, () -> ArtioSimulatorConfig.load(scenario));
+        assertTrue(error.getMessage().contains("simulator.exit.listen_port"));
+    }
+
+    @Test
     void inlineRulesTakePrecedenceOverRulesFile(@TempDir Path tempDir) throws IOException {
         Path scenario = tempDir.resolve("scenario.yaml");
         Files.writeString(
@@ -141,12 +249,152 @@ class ArtioSimulatorConfigTest {
     }
 
     @Test
+    void emptyInlineRulesFallBackToRulesFile(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  enabled: true
+                  entry:
+                    listen_port: 7101
+                  exit:
+                    listen_port: 7102
+                  mutation:
+                    enabled: true
+                    strict_mode: false
+                    rules_file: ./rules.yaml
+                    rules_inline:
+                      rules: []
+                """
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+
+        assertTrue(config.mutation().enabled());
+        assertFalse(config.mutation().strictMode());
+        assertEquals(ArtioSimulatorConfig.RuleSource.FILE, config.mutation().ruleSource());
+        assertEquals(tempDir.resolve("rules.yaml").toAbsolutePath().normalize(), config.mutation().rulesFile());
+    }
+
+    @Test
+    void parsesArtioWorkDirAndDeleteFlags(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  provider: artio
+                  enabled: true
+                  entry:
+                    listen_port: 7301
+                  exit:
+                    listen_port: 7302
+                  artio:
+                    work_dir: ./out/sim/artio
+                    delete_on_start: true
+                    delete_on_stop: true
+                """
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+
+        assertEquals(tempDir.resolve("out/sim/artio").toAbsolutePath().normalize(), config.storageDirs().workDir());
+        assertEquals(config.storageDirs().workDir().resolve("aeron"), config.storageDirs().aeronDir());
+        assertEquals(config.storageDirs().workDir().resolve("logs"), config.storageDirs().logDir());
+        assertTrue(config.storageDirs().deleteOnStart());
+        assertTrue(config.storageDirs().deleteOnStop());
+    }
+
+    @Test
+    void derivesNonEmptyCompIdsWhenBlankValuesProvided(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                sessions:
+                  entry:
+                    sender_comp_id: " "
+                    target_comp_id: " "
+                  exit:
+                    sender_comp_id: " "
+                    target_comp_id: " "
+                simulator:
+                  provider: artio
+                  enabled: true
+                  entry:
+                    listen_port: 7301
+                    local_comp_id: " "
+                    remote_comp_id: " "
+                  exit:
+                    listen_port: 7302
+                    local_comp_id: " "
+                    remote_comp_id: " "
+                """
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+        assertEquals("FIX_GATEWAY", config.entry().localCompId());
+        assertEquals("ENTRY_RACOMPID", config.entry().remoteCompId());
+        assertEquals("FIX_GATEWAY", config.exit().localCompId());
+        assertEquals("EXIT_RACOMPID", config.exit().remoteCompId());
+    }
+
+    @Test
+    void supportsTopLevelMutationRulesFromUnifiedScenario(@TempDir Path tempDir) throws IOException {
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            """
+                simulator:
+                  enabled: true
+                  entry:
+                    listen_port: 7201
+                  exit:
+                    listen_port: 7202
+                mutation:
+                  enabled: true
+                  strict_mode: false
+                  rules_inline:
+                    rules:
+                      - name: RA_prefix_ClOrdID
+                        when:
+                          msgTypes: [D, G, F]
+                          conditions:
+                            - tag: 11
+                              exists: true
+                        actions:
+                          - type: prefix
+                            tag: 11
+                            value: RA-
+                      - name: RA_set_custom_tag
+                        when:
+                          msgTypes: [D]
+                        actions:
+                          - type: set
+                            tag: 9001
+                            value: RAPID_ADDITION
+                """
+        );
+
+        ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
+
+        assertTrue(config.mutation().enabled());
+        assertFalse(config.mutation().strictMode());
+        assertEquals(ArtioSimulatorConfig.RuleSource.INLINE, config.mutation().ruleSource());
+        assertTrue(config.mutation().rulesInline().has("rules"));
+        assertEquals("RA_prefix_ClOrdID", config.mutation().rulesInline().path("rules").get(0).path("name").asText());
+        assertEquals("prefix", config.mutation().rulesInline().path("rules").get(0).path("actions").get(0).path("type").asText());
+    }
+
+    @Test
     void missingPortsAllowedWhenSimulatorDisabled(@TempDir Path tempDir) throws IOException {
         Path scenario = tempDir.resolve("scenario.yaml");
         Files.writeString(
             scenario,
             """
                 simulator:
+                  provider: none
                   enabled: false
                 """
         );
@@ -154,6 +402,8 @@ class ArtioSimulatorConfigTest {
         ArtioSimulatorConfig config = ArtioSimulatorConfig.load(scenario);
 
         assertFalse(config.enabled());
+        assertEquals("none", config.provider());
+        assertTrue(config.providerSupportedByArtioModule());
         assertEquals(0, config.entry().listenPort());
         assertEquals(0, config.exit().listenPort());
     }

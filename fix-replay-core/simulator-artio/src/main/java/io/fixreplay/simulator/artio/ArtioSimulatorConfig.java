@@ -1,12 +1,10 @@
 package io.fixreplay.simulator.artio;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
-import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import io.fixreplay.runner.ScenarioConfig;
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +23,8 @@ public final class ArtioSimulatorConfig {
     private static final long DEFAULT_GRACEFUL_TIMEOUT_MS = 5_000L;
     private static final int DEFAULT_FRAGMENT_LIMIT = 50;
     private static final String DEFAULT_IDLE_STRATEGY = "backoff";
+    private static final boolean DEFAULT_DELETE_ON_START = true;
+    private static final boolean DEFAULT_DELETE_ON_STOP = false;
 
     private final boolean enabled;
     private final String provider;
@@ -66,150 +66,89 @@ public final class ArtioSimulatorConfig {
 
     public static ArtioSimulatorConfig load(Path scenarioPath) throws IOException {
         Objects.requireNonNull(scenarioPath, "scenarioPath");
+        return fromScenario(ScenarioConfig.load(scenarioPath));
+    }
 
-        ObjectMapper mapper = mapperFor(scenarioPath);
-        JsonNode root = mapper.readTree(scenarioPath.toFile());
-        if (root == null || root instanceof NullNode) {
-            throw new IllegalArgumentException("Scenario config is empty: " + scenarioPath);
-        }
+    public static ArtioSimulatorConfig fromScenario(ScenarioConfig scenario) {
+        Objects.requireNonNull(scenario, "scenario");
 
-        Path scenarioBase = scenarioPath.toAbsolutePath().normalize().getParent();
-        if (scenarioBase == null) {
-            scenarioBase = Path.of(".").toAbsolutePath().normalize();
-        }
+        ScenarioConfig.Simulator simulator = scenario.simulator();
+        ScenarioConfig.Sessions sessions = scenario.sessions();
 
-        JsonNode simulator = root.path("simulator");
-        String provider = textOrDefault(simulator, DEFAULT_PROVIDER, "provider").toLowerCase(Locale.ROOT);
-        boolean enabled = booleanOrDefault(simulator, false, "enabled");
-        String beginString = textOrDefault(simulator, DEFAULT_BEGIN_STRING, "begin_string", "beginString");
+        String provider = firstNonBlank(simulator.provider(), DEFAULT_PROVIDER).toLowerCase(Locale.ROOT);
+        boolean enabled = simulator.enabled();
+        String beginString = firstNonBlank(simulator.beginString(), DEFAULT_BEGIN_STRING);
 
-        JsonNode sessions = root.path("sessions");
-        String defaultEntryRemoteCompId = firstNonBlank(
-            text(sessions.path("entry"), "sender_comp_id", "senderCompId"),
-            DEFAULT_ENTRY_REMOTE_COMP_ID
-        );
-        String defaultExitRemoteCompId = firstNonBlank(
-            text(sessions.path("exit"), "target_comp_id", "targetCompId"),
-            DEFAULT_EXIT_REMOTE_COMP_ID
-        );
+        String defaultEntryLocalCompId = firstNonBlank(sessions.entry().targetCompId(), DEFAULT_LOCAL_COMP_ID);
+        String defaultEntryRemoteCompId = firstNonBlank(sessions.entry().senderCompId(), DEFAULT_ENTRY_REMOTE_COMP_ID);
+        String defaultExitLocalCompId = firstNonBlank(sessions.exit().senderCompId(), DEFAULT_LOCAL_COMP_ID);
+        String defaultExitRemoteCompId = firstNonBlank(sessions.exit().targetCompId(), DEFAULT_EXIT_REMOTE_COMP_ID);
 
-        JsonNode entryNode = simulator.path("entry");
-        JsonNode exitNode = simulator.path("exit");
+        ScenarioConfig.SimulatorEndpoint entrySpec = simulator.entry();
+        ScenarioConfig.SimulatorEndpoint exitSpec = simulator.exit();
 
         SessionEndpoint entry = new SessionEndpoint(
-            textOrDefault(entryNode, DEFAULT_HOST, "listen_host", "listenHost", "host"),
-            intOrDefault(entryNode, 0, "listen_port", "listenPort", "port"),
-            textOrDefault(
-                entryNode,
-                DEFAULT_LOCAL_COMP_ID,
-                "local_comp_id",
-                "localCompId",
-                "sender_comp_id",
-                "senderCompId"
-            ),
-            firstNonBlank(
-                text(entryNode, "remote_comp_id", "remoteCompId", "target_comp_id", "targetCompId"),
-                defaultEntryRemoteCompId
-            )
+            firstNonBlank(entrySpec.listenHost(), DEFAULT_HOST),
+            intOrDefault(entrySpec.listenPort(), 0),
+            firstNonBlank(entrySpec.localCompId(), defaultEntryLocalCompId),
+            firstNonBlank(entrySpec.remoteCompId(), defaultEntryRemoteCompId)
         );
         SessionEndpoint exit = new SessionEndpoint(
-            textOrDefault(exitNode, DEFAULT_HOST, "listen_host", "listenHost", "host"),
-            intOrDefault(exitNode, 0, "listen_port", "listenPort", "port"),
-            textOrDefault(
-                exitNode,
-                DEFAULT_LOCAL_COMP_ID,
-                "local_comp_id",
-                "localCompId",
-                "sender_comp_id",
-                "senderCompId"
-            ),
-            firstNonBlank(
-                text(exitNode, "remote_comp_id", "remoteCompId", "target_comp_id", "targetCompId"),
-                defaultExitRemoteCompId
-            )
+            firstNonBlank(exitSpec.listenHost(), DEFAULT_HOST),
+            intOrDefault(exitSpec.listenPort(), 0),
+            firstNonBlank(exitSpec.localCompId(), defaultExitLocalCompId),
+            firstNonBlank(exitSpec.remoteCompId(), defaultExitRemoteCompId)
         );
 
-        JsonNode routingNode = simulator.path("routing");
-        Set<String> enabledMsgTypes = normalizeMsgTypes(stringList(routingNode, "enabled_msg_types", "enabledMsgTypes"));
+        ScenarioConfig.SimulatorRouting routingSpec = simulator.routing();
+        Set<String> enabledMsgTypes = normalizeMsgTypes(routingSpec.enabledMsgTypes());
         if (enabledMsgTypes.isEmpty()) {
             enabledMsgTypes = new LinkedHashSet<>(DEFAULT_ENABLED_MSG_TYPES);
         }
         Routing routing = new Routing(
             Set.copyOf(enabledMsgTypes),
-            booleanOrDefault(routingNode, true, "drop_admin_messages", "dropAdminMessages"),
-            longOrDefault(routingNode, 0L, "artificial_delay_ms", "artificialDelayMs"),
-            booleanOrDefault(
-                routingNode,
-                true,
-                "fail_if_exit_not_logged_on",
-                "failIfExitNotLoggedOn"
-            ),
-            intOrDefault(routingNode, DEFAULT_MAX_QUEUE_DEPTH, "max_queue_depth", "maxQueueDepth")
+            booleanOrDefault(routingSpec.dropAdminMessages(), true),
+            longOrDefault(routingSpec.artificialDelayMs(), 0L),
+            booleanOrDefault(routingSpec.failIfExitNotLoggedOn(), true),
+            intOrDefault(routingSpec.maxQueueDepth(), DEFAULT_MAX_QUEUE_DEPTH)
         );
 
-        JsonNode mutationNode = simulator.path("mutation");
-        JsonNode inlineRules = node(mutationNode, "rules_inline", "rulesInline");
-        JsonNode inlineRulesCopy = (inlineRules == null || inlineRules.isMissingNode() || inlineRules.isNull())
-            ? NullNode.instance
-            : inlineRules.deepCopy();
-        Path rulesFile = optionalResolvedPath(scenarioBase, text(mutationNode, "rules_file", "rulesFile"));
+        ScenarioConfig.SimulatorMutation mutationSpec = simulator.mutation();
+        JsonNode inlineRules = copyNode(mutationSpec.rulesInline());
         Mutation mutation = new Mutation(
-            booleanOrDefault(mutationNode, false, "enabled"),
-            booleanOrDefault(mutationNode, false, "strict_mode", "strictMode"),
-            inlineRulesCopy,
-            rulesFile
+            mutationSpec.enabled(),
+            mutationSpec.strictMode(),
+            inlineRules,
+            mutationSpec.rulesFile()
         );
 
-        JsonNode observabilityNode = simulator.path("observability");
+        ScenarioConfig.SimulatorObservability observabilitySpec = simulator.observability();
         Observability observability = new Observability(
-            booleanOrDefault(observabilityNode, true, "log_inbound_outbound", "logInboundOutbound"),
-            booleanOrDefault(observabilityNode, false, "log_fix_payloads", "logFixPayloads")
+            booleanOrDefault(observabilitySpec.logInboundOutbound(), true),
+            booleanOrDefault(observabilitySpec.logFixPayloads(), false)
         );
 
-        JsonNode shutdownNode = simulator.path("shutdown");
-        Shutdown shutdown = new Shutdown(
-            longOrDefault(shutdownNode, DEFAULT_GRACEFUL_TIMEOUT_MS, "graceful_timeout_ms", "gracefulTimeoutMs")
+        ScenarioConfig.SimulatorShutdown shutdownSpec = simulator.shutdown();
+        Shutdown shutdown = new Shutdown(longOrDefault(shutdownSpec.gracefulTimeoutMs(), DEFAULT_GRACEFUL_TIMEOUT_MS));
+
+        ScenarioConfig.SimulatorArtio artioSpec = simulator.artio();
+        Path defaultWorkDir = defaultWorkDir(scenario);
+        Path workDir = pathOrDefault(artioSpec.workDir(), defaultWorkDir);
+        Path aeronDir = pathOrDefault(artioSpec.aeronDir(), workDir.resolve("aeron"));
+        Path logDir = pathOrDefault(artioSpec.logDir(), workDir.resolve("logs"));
+        StorageDirs storageDirs = new StorageDirs(
+            workDir,
+            aeronDir,
+            logDir,
+            booleanOrDefault(artioSpec.deleteOnStart(), DEFAULT_DELETE_ON_START),
+            booleanOrDefault(artioSpec.deleteOnStop(), DEFAULT_DELETE_ON_STOP)
         );
 
-        JsonNode artioNode = simulator.path("artio");
-        Path defaultWorkDir = defaultWorkDir(root, scenarioBase);
-        Path workDir = optionalResolvedPath(scenarioBase, text(artioNode, "work_dir", "workDir"));
-        if (workDir == null) {
-            workDir = defaultWorkDir;
-        }
-        Path aeronDir = optionalResolvedPath(scenarioBase, text(artioNode, "aeron_dir", "aeronDir"));
-        if (aeronDir == null) {
-            aeronDir = workDir.resolve("aeron");
-        }
-        Path logDir = optionalResolvedPath(scenarioBase, text(artioNode, "log_dir", "logDir"));
-        if (logDir == null) {
-            logDir = workDir.resolve("logs");
-        }
-        boolean cleanupOnStop = booleanOrDefault(
-            artioNode,
-            false,
-            "cleanup_on_stop",
-            "cleanupOnStop",
-            "cleanup_work_dirs_on_stop",
-            "cleanupWorkDirsOnStop"
-        );
-        StorageDirs storageDirs = new StorageDirs(workDir, aeronDir, logDir, cleanupOnStop);
-
-        JsonNode performanceNode = node(artioNode, "performance");
+        ScenarioConfig.SimulatorArtioPerformance performanceSpec = artioSpec.performance();
         Performance performance = new Performance(
-            intOrDefault(
-                performanceNode,
-                DEFAULT_FRAGMENT_LIMIT,
-                "inbound_fragment_limit",
-                "inboundFragmentLimit"
-            ),
-            intOrDefault(
-                performanceNode,
-                DEFAULT_FRAGMENT_LIMIT,
-                "outbound_fragment_limit",
-                "outboundFragmentLimit"
-            ),
-            textOrDefault(performanceNode, DEFAULT_IDLE_STRATEGY, "idle_strategy", "idleStrategy")
+            intOrDefault(performanceSpec.inboundFragmentLimit(), DEFAULT_FRAGMENT_LIMIT),
+            intOrDefault(performanceSpec.outboundFragmentLimit(), DEFAULT_FRAGMENT_LIMIT),
+            firstNonBlank(performanceSpec.idleStrategy(), DEFAULT_IDLE_STRATEGY)
         );
 
         ArtioSimulatorConfig config = new ArtioSimulatorConfig(
@@ -274,7 +213,7 @@ public final class ArtioSimulatorConfig {
     }
 
     public boolean providerSupportedByArtioModule() {
-        return "artio".equalsIgnoreCase(provider) || "quickfixj".equalsIgnoreCase(provider);
+        return "artio".equalsIgnoreCase(provider) || "none".equalsIgnoreCase(provider);
     }
 
     public ArtioSimulatorConfig withOverrides(Integer overrideEntryPort, Integer overrideExitPort, Path overrideRulesFile) {
@@ -349,6 +288,9 @@ public final class ArtioSimulatorConfig {
             return;
         }
 
+        if (!"artio".equalsIgnoreCase(provider)) {
+            throw new IllegalArgumentException("simulator.provider must be 'artio' when simulator.enabled=true");
+        }
         if (entry.listenPort() <= 0) {
             throw new IllegalArgumentException("simulator.entry.listen_port must be set and > 0 when simulator.enabled=true");
         }
@@ -377,20 +319,30 @@ public final class ArtioSimulatorConfig {
         }
     }
 
-    private static Path defaultWorkDir(JsonNode root, Path scenarioBase) {
-        String cacheFolder = text(root, "cache_folder", "cacheFolder");
-        if (cacheFolder != null && !cacheFolder.isBlank()) {
-            return resolvePath(scenarioBase, cacheFolder);
+    private static Path defaultWorkDir(ScenarioConfig scenario) {
+        if (scenario.hasCacheFolder()) {
+            return scenario.cacheFolder();
         }
-        return scenarioBase.resolve(".simulator-artio").normalize();
+        return scenario.scenarioBaseDirectory().resolve(".simulator-artio").normalize();
     }
 
-    private static ObjectMapper mapperFor(Path configPath) {
-        String lower = configPath.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (lower.endsWith(".yaml") || lower.endsWith(".yml")) {
-            return new ObjectMapper(new YAMLFactory());
+    private static boolean booleanOrDefault(Boolean value, boolean defaultValue) {
+        return value == null ? defaultValue : value;
+    }
+
+    private static int intOrDefault(Integer value, int defaultValue) {
+        return value == null ? defaultValue : value;
+    }
+
+    private static long longOrDefault(Long value, long defaultValue) {
+        return value == null ? defaultValue : value;
+    }
+
+    private static Path pathOrDefault(Path value, Path defaultValue) {
+        if (value == null) {
+            return defaultValue.toAbsolutePath().normalize();
         }
-        return new ObjectMapper();
+        return value.toAbsolutePath().normalize();
     }
 
     private static String firstNonBlank(String... candidates) {
@@ -402,129 +354,17 @@ public final class ArtioSimulatorConfig {
         return null;
     }
 
-    private static JsonNode node(JsonNode parent, String... names) {
-        if (parent == null || parent.isMissingNode() || parent.isNull()) {
+    private static JsonNode copyNode(JsonNode value) {
+        if (value == null || value.isMissingNode() || value.isNull()) {
             return NullNode.instance;
         }
-        for (String name : names) {
-            JsonNode value = parent.get(name);
-            if (value != null && !value.isNull()) {
-                return value;
-            }
-        }
-        return NullNode.instance;
-    }
-
-    private static String text(JsonNode parent, String... names) {
-        JsonNode value = node(parent, names);
-        if (value.isMissingNode() || value.isNull()) {
-            return null;
-        }
-        if (value.isTextual()) {
-            String trimmed = value.asText().trim();
-            return trimmed.isEmpty() ? null : trimmed;
-        }
-        if (value.isNumber() || value.isBoolean()) {
-            return value.asText();
-        }
-        return null;
-    }
-
-    private static String textOrDefault(JsonNode parent, String defaultValue, String... names) {
-        String value = text(parent, names);
-        return value == null ? defaultValue : value;
-    }
-
-    private static boolean booleanOrDefault(JsonNode parent, boolean defaultValue, String... names) {
-        JsonNode value = node(parent, names);
-        if (value.isMissingNode() || value.isNull()) {
-            return defaultValue;
-        }
-        if (value.isBoolean()) {
-            return value.booleanValue();
-        }
-        if (value.isTextual()) {
-            String text = value.asText().trim();
-            if (text.isEmpty()) {
-                return defaultValue;
-            }
-            return Boolean.parseBoolean(text);
-        }
-        return defaultValue;
-    }
-
-    private static int intOrDefault(JsonNode parent, int defaultValue, String... names) {
-        JsonNode value = node(parent, names);
-        if (value.isMissingNode() || value.isNull()) {
-            return defaultValue;
-        }
-        if (value.isIntegralNumber()) {
-            return value.intValue();
-        }
-        if (value.isTextual()) {
-            String text = value.asText().trim();
-            if (text.isEmpty()) {
-                return defaultValue;
-            }
-            return Integer.parseInt(text);
-        }
-        throw new IllegalArgumentException("Expected integer value for: " + List.of(names));
-    }
-
-    private static long longOrDefault(JsonNode parent, long defaultValue, String... names) {
-        JsonNode value = node(parent, names);
-        if (value.isMissingNode() || value.isNull()) {
-            return defaultValue;
-        }
-        if (value.isIntegralNumber()) {
-            return value.longValue();
-        }
-        if (value.isTextual()) {
-            String text = value.asText().trim();
-            if (text.isEmpty()) {
-                return defaultValue;
-            }
-            return Long.parseLong(text);
-        }
-        throw new IllegalArgumentException("Expected long value for: " + List.of(names));
-    }
-
-    private static List<String> stringList(JsonNode parent, String... names) {
-        JsonNode value = node(parent, names);
-        if (value.isMissingNode() || value.isNull()) {
-            return List.of();
-        }
-        if (value.isArray()) {
-            List<String> items = new ArrayList<>(value.size());
-            for (JsonNode item : value) {
-                if (!item.isNull()) {
-                    String text = item.asText("").trim();
-                    if (!text.isEmpty()) {
-                        items.add(text);
-                    }
-                }
-            }
-            return items;
-        }
-        if (value.isTextual()) {
-            String raw = value.asText().trim();
-            if (raw.isEmpty()) {
-                return List.of();
-            }
-            String[] split = raw.split(",");
-            List<String> items = new ArrayList<>(split.length);
-            for (String part : split) {
-                String trimmed = part.trim();
-                if (!trimmed.isEmpty()) {
-                    items.add(trimmed);
-                }
-            }
-            return items;
-        }
-        return List.of();
+        return value.deepCopy();
     }
 
     private static Set<String> normalizeMsgTypes(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
         LinkedHashSet<String> set = new LinkedHashSet<>();
         for (String value : values) {
             if (value != null) {
@@ -535,21 +375,6 @@ public final class ArtioSimulatorConfig {
             }
         }
         return set;
-    }
-
-    private static Path optionalResolvedPath(Path base, String rawPath) {
-        if (rawPath == null || rawPath.isBlank()) {
-            return null;
-        }
-        return resolvePath(base, rawPath);
-    }
-
-    private static Path resolvePath(Path base, String rawPath) {
-        Path path = Path.of(rawPath);
-        if (path.isAbsolute()) {
-            return path.normalize();
-        }
-        return base.resolve(path).normalize();
     }
 
     public record SessionEndpoint(String listenHost, int listenPort, String localCompId, String remoteCompId) {
@@ -578,13 +403,27 @@ public final class ArtioSimulatorConfig {
         }
 
         public RuleSource ruleSource() {
-            if (!rulesInline.isMissingNode() && !rulesInline.isNull()) {
+            if (hasInlineRules()) {
                 return RuleSource.INLINE;
             }
             if (rulesFile != null) {
                 return RuleSource.FILE;
             }
             return RuleSource.NONE;
+        }
+
+        private boolean hasInlineRules() {
+            if (rulesInline.isMissingNode() || rulesInline.isNull()) {
+                return false;
+            }
+            JsonNode ruleArray = rulesInline.path("rules");
+            if (ruleArray.isArray()) {
+                return ruleArray.size() > 0;
+            }
+            if (rulesInline.isArray()) {
+                return rulesInline.size() > 0;
+            }
+            return !rulesInline.isEmpty();
         }
     }
 
@@ -600,7 +439,13 @@ public final class ArtioSimulatorConfig {
     public record Shutdown(long gracefulTimeoutMs) {
     }
 
-    public record StorageDirs(Path workDir, Path aeronDir, Path logDir, boolean cleanupOnStop) {
+    public record StorageDirs(
+        Path workDir,
+        Path aeronDir,
+        Path logDir,
+        boolean deleteOnStart,
+        boolean deleteOnStop
+    ) {
         public StorageDirs {
             workDir = Objects.requireNonNull(workDir, "workDir").toAbsolutePath().normalize();
             aeronDir = Objects.requireNonNull(aeronDir, "aeronDir").toAbsolutePath().normalize();

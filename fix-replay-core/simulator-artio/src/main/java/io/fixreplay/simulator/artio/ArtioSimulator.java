@@ -126,7 +126,7 @@ public final class ArtioSimulator implements AutoCloseable {
         }
         clearQueuedMessages();
 
-        if (config.storageDirs().cleanupOnStop()) {
+        if (config.storageDirs().deleteOnStop()) {
             cleanupDirectory(config.storageDirs().logDir());
             cleanupDirectory(config.storageDirs().aeronDir());
             cleanupDirectory(config.storageDirs().workDir());
@@ -539,7 +539,7 @@ public final class ArtioSimulator implements AutoCloseable {
                 .libraryAeronChannel(CommonContext.IPC_CHANNEL)
                 .initialAcceptedSessionOwner(InitialAcceptedSessionOwner.SOLE_LIBRARY)
                 .logFileDir(paths.logDir().toString())
-                .deleteLogFileDirOnStart(true)
+                .deleteLogFileDirOnStart(config.storageDirs().deleteOnStart())
                 .logInboundMessages(false)
                 .logOutboundMessages(false)
                 .sessionPersistenceStrategy(SessionPersistenceStrategy.alwaysTransient())
@@ -570,8 +570,8 @@ public final class ArtioSimulator implements AutoCloseable {
         private MediaDriver launchMediaDriver(Path aeronDir) {
             MediaDriver.Context context = new MediaDriver.Context()
                 .aeronDirectoryName(aeronDir.toString())
-                .dirDeleteOnStart(true)
-                .dirDeleteOnShutdown(true);
+                .dirDeleteOnStart(config.storageDirs().deleteOnStart())
+                .dirDeleteOnShutdown(config.storageDirs().deleteOnStop());
             return MediaDriver.launchEmbedded(context);
         }
 

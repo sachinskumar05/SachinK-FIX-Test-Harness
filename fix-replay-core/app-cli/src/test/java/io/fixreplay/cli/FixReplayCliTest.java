@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.fixreplay.model.FixMessage;
 import io.fixreplay.runner.FixTransport;
+import io.fixreplay.runner.ScenarioConfig;
 import io.fixreplay.runner.TransportSessionConfig;
+import io.fixreplay.simulator.artio.ArtioSimulatorConfig;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -197,6 +199,121 @@ class FixReplayCliTest {
         assertTrue(Files.exists(junit));
         assertEquals(1, ScriptedTransport.connectCalls.get());
         assertEquals("value", ScriptedTransport.lastProperties.get("custom"));
+    }
+
+    @Test
+    void runOnlineWithStartSimulatorSkipsWhenSimulatorDisabled(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Path out = tempDir.resolve("online-start-sim-disabled.json");
+        Path junit = tempDir.resolve("online-start-sim-disabled-junit.xml");
+
+        Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
+        Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "msgTypeFilter: [D,8]",
+                "simulator:",
+                "  provider: artio",
+                "  enabled: false"
+            ) + "\n"
+        );
+
+        ScriptedTransport.reset(List.of(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=099|", '|')));
+
+        int exitCode = FixReplayCli.newCommandLine().execute(
+            "run-online",
+            "--scenario",
+            scenario.toString(),
+            "--transport-class",
+            ScriptedTransport.class.getName(),
+            "--start-simulator",
+            "--out",
+            out.toString(),
+            "--junit",
+            junit.toString()
+        );
+
+        assertEquals(0, exitCode);
+        assertTrue(Files.exists(out));
+        assertTrue(Files.exists(junit));
+        assertEquals(1, ScriptedTransport.connectCalls.get());
+    }
+
+    @Test
+    void applySimulatorTransportDefaultsUsesScenarioPortsAndWildcardHost(@TempDir Path tempDir) throws IOException {
+        Files.createDirectory(tempDir.resolve("input"));
+        Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "sessions:",
+                "  entry:",
+                "    sender_comp_id: ENTRY_RACOMPID",
+                "    target_comp_id: FIX_GATEWAY",
+                "  exit:",
+                "    sender_comp_id: FIX_GATEWAY",
+                "    target_comp_id: EXIT_RACOMPID",
+                "simulator:",
+                "  provider: artio",
+                "  enabled: true",
+                "  entry:",
+                "    listen_host: 0.0.0.0",
+                "    listen_port: 7101",
+                "  exit:",
+                "    listen_host: 0.0.0.0",
+                "    listen_port: 7102"
+            ) + "\n"
+        );
+
+        ScenarioConfig parsedScenario = ScenarioConfig.load(scenario);
+        ArtioSimulatorConfig simulatorConfig = ArtioSimulatorConfig.fromScenario(parsedScenario);
+
+        Map<String, String> defaults = FixReplayCli.applySimulatorTransportDefaults(Map.of("custom", "v"), simulatorConfig);
+        assertEquals("127.0.0.1", defaults.get("artio.host"));
+        assertEquals("7101", defaults.get("artio.port"));
+        assertEquals("127.0.0.1", defaults.get("artio.exitHost"));
+        assertEquals("7102", defaults.get("artio.exitPort"));
+        assertEquals("v", defaults.get("custom"));
+
+        Map<String, String> overridden = FixReplayCli.applySimulatorTransportDefaults(
+            Map.of("artio.host", "example.com", "artio.port", "7999"),
+            simulatorConfig
+        );
+        assertEquals("example.com", overridden.get("artio.host"));
+        assertEquals("7999", overridden.get("artio.port"));
+    }
+
+    @Test
+    void resolveTransportClassNameDefaultsToArtioWhenStartSimulatorWithArtioProvider() {
+        ScenarioConfig scenario = ScenarioConfig.builder()
+            .simulator(new ScenarioConfig.Simulator("artio", true, null, null, null, null, null, null, null, null))
+            .build();
+
+        String resolved = FixReplayCli.resolveTransportClassName(null, true, scenario);
+        assertEquals("io.fixreplay.adapter.artio.ArtioFixTransport", resolved);
+    }
+
+    @Test
+    void resolveTransportClassNameFailsWhenMissingWithoutArtioSimulator() {
+        ScenarioConfig scenario = ScenarioConfig.builder()
+            .simulator(new ScenarioConfig.Simulator("none", false, null, null, null, null, null, null, null, null))
+            .build();
+
+        IllegalArgumentException error = org.junit.jupiter.api.Assertions.assertThrows(
+            IllegalArgumentException.class,
+            () -> FixReplayCli.resolveTransportClassName(null, false, scenario)
+        );
+        assertTrue(error.getMessage().contains("--transport-class"));
     }
 
     public static final class ScriptedTransport implements FixTransport {

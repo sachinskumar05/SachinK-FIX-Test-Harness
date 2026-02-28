@@ -4,10 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -107,5 +110,46 @@ class ArtioMutationEngineTest {
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> engine.apply("D", fields));
         assertTrue(error.getMessage().contains("strict_mode"));
+    }
+
+    @Test
+    void sameInputProducesSameMutatedOutput() throws Exception {
+        JsonNode inlineRules = MAPPER.readTree(
+            """
+                {
+                  "rules": [
+                    {
+                      "name": "prefix-and-set",
+                      "when": { "msgTypes": ["D"], "conditions": [ { "tag": 11, "exists": true } ] },
+                      "actions": [
+                        { "type": "prefix", "tag": 11, "value": "RA-" },
+                        { "type": "set", "tag": 9001, "value": "RAPID_ADDITION" },
+                        { "type": "regex_replace", "tag": 1, "pattern": "^(.{0,4}).*$", "replacement": "$1XXXX" }
+                      ]
+                    }
+                  ]
+                }
+                """
+        );
+
+        ArtioMutationEngine engine = ArtioMutationEngine.fromConfig(
+            new ArtioSimulatorConfig.Mutation(true, false, inlineRules, null)
+        );
+
+        Map<Integer, String> seed = new HashMap<>();
+        seed.put(35, "D");
+        seed.put(11, "ABC123");
+        seed.put(1, "ACCOUNT12345");
+
+        Map<Integer, String> left = new HashMap<>(seed);
+        Map<Integer, String> right = new HashMap<>(seed);
+        engine.apply("D", left);
+        engine.apply("D", right);
+
+        assertEquals(left, right);
+        assertIterableEquals(
+            new ArrayList<>(left.entrySet()),
+            new ArrayList<>(right.entrySet())
+        );
     }
 }

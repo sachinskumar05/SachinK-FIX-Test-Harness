@@ -1,11 +1,13 @@
 package io.fixreplay.simulator.artio;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.fixreplay.model.FixMessage;
 import io.fixreplay.model.FixParser;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -33,7 +35,9 @@ class ArtioSessionMessageSenderTest {
         );
 
         byte[] encoded = ArtioSessionMessageSender.encodePayload(message, "FIX.4.2", header, 4096);
+        byte[] encodedSecond = ArtioSessionMessageSender.encodePayload(message, "FIX.4.2", header, 4096);
         FixMessage decoded = FixParser.parse(encoded);
+        assertArrayEquals(encoded, encodedSecond);
 
         assertEquals("FIX.4.2", decoded.getString(8));
         assertEquals("D", decoded.getString(35));
@@ -46,6 +50,11 @@ class ArtioSessionMessageSenderTest {
         assertEquals("20260228-10:00:00.000", decoded.getString(60));
         assertTrue(decoded.getString(9) != null && !decoded.getString(9).isBlank());
         assertTrue(decoded.getString(10) != null && !decoded.getString(10).isBlank());
+
+        int expectedBodyLength = expectedBodyLength(encoded);
+        assertEquals(expectedBodyLength, Integer.parseInt(decoded.getString(9)));
+        int expectedChecksum = expectedChecksum(encoded);
+        assertEquals(expectedChecksum, Integer.parseInt(decoded.getString(10)));
 
         String display = ArtioSessionMessageSender.toDisplayString(encoded);
         assertTrue(display.indexOf("|35=") < display.indexOf("|49="));
@@ -66,5 +75,23 @@ class ArtioSessionMessageSenderTest {
             () -> ArtioSessionMessageSender.toFixMessage(fields)
         );
         assertTrue(error.getMessage().contains("tag 35"));
+    }
+
+    private static int expectedBodyLength(byte[] payload) {
+        String raw = new String(payload, StandardCharsets.ISO_8859_1);
+        int tag9Start = raw.indexOf("9=");
+        int firstSohAfter9 = raw.indexOf('\u0001', tag9Start);
+        int checksumFieldStart = raw.lastIndexOf("\u000110=");
+        return (checksumFieldStart + 1) - (firstSohAfter9 + 1);
+    }
+
+    private static int expectedChecksum(byte[] payload) {
+        String raw = new String(payload, StandardCharsets.ISO_8859_1);
+        int checksumTagStart = raw.lastIndexOf("10=");
+        int sum = 0;
+        for (int i = 0; i < checksumTagStart; i++) {
+            sum += payload[i] & 0xFF;
+        }
+        return sum % 256;
     }
 }
