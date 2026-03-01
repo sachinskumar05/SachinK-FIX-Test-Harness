@@ -202,10 +202,109 @@ class FixReplayCliTest {
     }
 
     @Test
+    void runOnlineFailureReportIncludesDescriptiveReasons(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Path out = tempDir.resolve("online-failure.json");
+        Path junit = tempDir.resolve("online-failure-junit.xml");
+
+        Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
+        Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "msgTypeFilter: [D,8]"
+            ) + "\n"
+        );
+
+        ScriptedTransport.reset(List.of());
+
+        int exitCode = FixReplayCli.newCommandLine().execute(
+            "run-online",
+            "--scenario",
+            scenario.toString(),
+            "--transport-class",
+            ScriptedTransport.class.getName(),
+            "--receive-timeout-ms",
+            "100",
+            "--queue-capacity",
+            "8",
+            "--out",
+            out.toString(),
+            "--junit",
+            junit.toString()
+        );
+
+        assertEquals(2, exitCode);
+        JsonNode json = JSON.readTree(Files.readString(out));
+        assertTrue(!json.path("passed").asBoolean());
+        assertTrue(json.path("failureSummary").isArray());
+        assertTrue(containsText(json.path("failureSummary"), "Timed out after"));
+
+        JsonNode firstSession = json.path("sessions").get(0);
+        assertTrue(firstSession.path("failureReasons").isArray());
+        assertTrue(containsText(firstSession.path("failureReasons"), "did not match any received EXIT message"));
+    }
+
+    @Test
+    void runOnlineUsesEntryInputWhenExpectedSessionDiffers(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Path out = tempDir.resolve("online-entry-fallback.json");
+        Path junit = tempDir.resolve("online-entry-fallback-junit.xml");
+
+        Files.writeString(input.resolve("ENTRY_QFIX.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
+        Files.writeString(expected.resolve("EXIT_QFIX.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "sessions:",
+                "  entry:",
+                "    sender_comp_id: ENTRY",
+                "    target_comp_id: QFIX",
+                "  exit:",
+                "    sender_comp_id: EXIT",
+                "    target_comp_id: QFIX"
+            ) + "\n"
+        );
+
+        ScriptedTransport.reset(List.of(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=099|", '|')));
+
+        int exitCode = FixReplayCli.newCommandLine().execute(
+            "run-online",
+            "--scenario",
+            scenario.toString(),
+            "--transport-class",
+            ScriptedTransport.class.getName(),
+            "--receive-timeout-ms",
+            "500",
+            "--queue-capacity",
+            "8",
+            "--out",
+            out.toString(),
+            "--junit",
+            junit.toString()
+        );
+
+        assertEquals(0, exitCode);
+        assertTrue(Files.exists(out));
+        assertEquals(1, ScriptedTransport.connectCalls.get());
+    }
+
+    @Test
     void runOnlineUsesInitiatorHostAndPortFromScenarioWhenNotProvided(@TempDir Path tempDir) throws IOException {
         Path input = Files.createDirectory(tempDir.resolve("input"));
         Path expected = Files.createDirectory(tempDir.resolve("expected"));
         Path scenario = tempDir.resolve("scenario.yaml");
+        Path junit = tempDir.resolve("online-initiator-defaults-junit.xml");
 
         Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
         Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
@@ -240,7 +339,9 @@ class FixReplayCliTest {
             "--receive-timeout-ms",
             "500",
             "--queue-capacity",
-            "8"
+            "8",
+            "--junit",
+            junit.toString()
         );
 
         assertEquals(0, exitCode);
@@ -482,5 +583,17 @@ class FixReplayCliTest {
         public void close() {
             // No-op.
         }
+    }
+
+    private static boolean containsText(JsonNode values, String snippet) {
+        if (values == null || !values.isArray()) {
+            return false;
+        }
+        for (JsonNode value : values) {
+            if (value.isTextual() && value.asText().contains(snippet)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

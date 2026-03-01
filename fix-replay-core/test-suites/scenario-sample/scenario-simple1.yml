@@ -24,6 +24,7 @@ compare:
   defaultExcludeTags: [8, 9, 10, 34, 49, 52, 56, 122]
 
 simulator:
+
   provider: "artio"
   enabled: true
   begin_string: "FIX.4.4"

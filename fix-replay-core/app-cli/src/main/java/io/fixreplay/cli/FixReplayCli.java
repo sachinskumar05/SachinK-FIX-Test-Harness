@@ -343,6 +343,7 @@ public final class FixReplayCli implements Callable<Integer> {
                 List<DiffReport.MessageResult> allDiffMessages = new ArrayList<>();
                 Map<String, JsonNode> linkReports = new TreeMap<>();
                 List<Map<String, Object>> perSession = new ArrayList<>();
+                List<String> failureSummary = new ArrayList<>();
 
                 int totalSent = 0;
                 int totalReceived = 0;
@@ -356,11 +357,8 @@ public final class FixReplayCli implements Callable<Integer> {
 
                 OnlineRunner runner = new OnlineRunner();
                 for (SessionKey session : sessions) {
-                    Path inputPath = inputFiles.get(session);
+                    Path inputPath = resolveInputPathForExpectedSession(session, inputFiles, scenarioConfig);
                     Path expectedPath = expectedFiles.get(session);
-                    if (inputPath == null) {
-                        throw new IllegalArgumentException("Missing input .in file for session " + session.id());
-                    }
 
                     List<FixMessage> entryMessages = loadMessages(scanner, inputPath, scenarioConfig.msgTypeFilter());
                     List<FixMessage> expectedMessages = loadMessages(scanner, expectedPath, scenarioConfig.msgTypeFilter());
@@ -414,6 +412,15 @@ public final class FixReplayCli implements Callable<Integer> {
 
                     boolean sessionPass = result.passed() && !result.timedOut();
                     overallPass = overallPass && sessionPass;
+                    List<String> sessionFailureReasons = describeOnlineSessionFailures(
+                        result,
+                        expectedMessages.size(),
+                        receiveTimeoutMs,
+                        queueCapacity
+                    );
+                    for (String reason : sessionFailureReasons) {
+                        failureSummary.add(session.id() + ": " + reason);
+                    }
 
                     Map<String, Object> sessionSummary = new LinkedHashMap<>();
                     sessionSummary.put("session", session.id());
@@ -425,6 +432,7 @@ public final class FixReplayCli implements Callable<Integer> {
                     sessionSummary.put("unmatchedExpected", result.unmatchedExpected());
                     sessionSummary.put("unmatchedActual", result.unmatchedActual());
                     sessionSummary.put("ambiguous", result.ambiguous());
+                    sessionSummary.put("failureReasons", sessionFailureReasons);
                     sessionSummary.put("passed", sessionPass);
                     perSession.add(sessionSummary);
                 }
@@ -446,6 +454,7 @@ public final class FixReplayCli implements Callable<Integer> {
                 report.put("scenario", normalizePath(scenarioPath));
                 report.put("counts", counts);
                 report.put("sessions", perSession);
+                report.put("failureSummary", failureSummary);
                 report.put("diffReport", parseJson(diffReport.toJson()));
                 report.put("linkReports", linkReports);
 
@@ -547,6 +556,54 @@ public final class FixReplayCli implements Callable<Integer> {
             Map.of(9000, new CompareResult.ValueDifference(field + "=0", field + "=" + value))
         );
         return new DiffReport.MessageResult(id, failure);
+    }
+
+    private static List<String> describeOnlineSessionFailures(
+        OnlineRunResult result,
+        int expectedCount,
+        long receiveTimeoutMs,
+        int queueCapacity
+    ) {
+        if (result.passed() && !result.timedOut()) {
+            return List.of();
+        }
+
+        List<String> reasons = new ArrayList<>();
+        if (result.timedOut()) {
+            reasons.add(
+                "Timed out after " +
+                    receiveTimeoutMs +
+                    "ms while waiting for EXIT messages (expected=" +
+                    expectedCount +
+                    ", received=" +
+                    result.receivedCount() +
+                    ")"
+            );
+        }
+        if (result.unmatchedExpected() > 0) {
+            reasons.add(result.unmatchedExpected() + " expected message(s) did not match any received EXIT message");
+        }
+        if (result.unmatchedActual() > 0) {
+            reasons.add(result.unmatchedActual() + " received EXIT message(s) did not match any expected message");
+        }
+        if (result.ambiguous() > 0) {
+            reasons.add(result.ambiguous() + " received EXIT message(s) matched multiple expected candidates");
+        }
+        if (result.droppedCount() > 0) {
+            reasons.add(
+                result.droppedCount() +
+                    " received message(s) were dropped because the receive queue reached capacity " +
+                    queueCapacity
+            );
+        }
+        long compareFailures = result.diffReport().failedMessages();
+        if (compareFailures > 0) {
+            reasons.add(compareFailures + " matched message comparison(s) had tag/value differences");
+        }
+        if (reasons.isEmpty()) {
+            reasons.add("Replay failed for this session (see diffReport for details)");
+        }
+        return List.copyOf(reasons);
     }
 
     private static Map<String, String> mergeTransportProperties(Path configFile, Map<String, String> commandLineProperties)
@@ -864,6 +921,36 @@ public final class FixReplayCli implements Callable<Integer> {
 
     private static SessionKey reverseSession(SessionKey session) {
         return new SessionKey(session.targetCompId(), session.senderCompId());
+    }
+
+    private static Path resolveInputPathForExpectedSession(
+        SessionKey expectedSession,
+        Map<SessionKey, Path> inputFiles,
+        ScenarioConfig scenarioConfig
+    ) {
+        Path exact = inputFiles.get(expectedSession);
+        if (exact != null) {
+            return exact;
+        }
+
+        ScenarioConfig.SessionIdentity entry = scenarioConfig.sessions().entry();
+        if (entry.senderCompId() != null && !entry.senderCompId().isBlank() && entry.targetCompId() != null && !entry.targetCompId().isBlank()) {
+            SessionKey entrySession = new SessionKey(entry.senderCompId(), entry.targetCompId());
+            Path entryPath = inputFiles.get(entrySession);
+            if (entryPath != null) {
+                return entryPath;
+            }
+        }
+
+        if (inputFiles.size() == 1) {
+            return inputFiles.values().iterator().next();
+        }
+
+        List<String> available = new ArrayList<>(inputFiles.keySet().stream().map(SessionKey::id).toList());
+        available.sort(String::compareTo);
+        throw new IllegalArgumentException(
+            "Missing input .in file for expected session " + expectedSession.id() + ". Available input sessions: " + available
+        );
     }
 
     private static FixTransport instantiateTransport(String className) throws ReflectiveOperationException {
