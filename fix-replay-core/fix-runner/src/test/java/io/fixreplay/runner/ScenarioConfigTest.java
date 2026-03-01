@@ -227,6 +227,41 @@ class ScenarioConfigTest {
     }
 
     @Test
+    void resolvesReportOutputsFromScenarioFolderDefaults(@TempDir Path tempDir) throws IOException {
+        Files.createDirectory(tempDir.resolve("input"));
+        Files.createDirectory(tempDir.resolve("expected"));
+        Path configFile = tempDir.resolve("scenario.yaml");
+
+        String yaml = """
+            inputFolder: input
+            expectedFolder: expected
+            reports:
+              folder: results
+            """;
+        Files.writeString(configFile, yaml);
+
+        ScenarioConfig config = ScenarioConfig.load(configFile);
+
+        assertEquals(tempDir.resolve("results").toAbsolutePath().normalize(), config.reportOutputs().folder());
+        assertEquals(
+            tempDir.resolve("results").resolve("{scenario}-{timestamp}-run-online-report.json").toAbsolutePath().normalize(),
+            config.reportOutputs().runOnlineJson()
+        );
+        assertEquals(
+            tempDir.resolve("results").resolve("{scenario}-{timestamp}-run-online-junit.xml").toAbsolutePath().normalize(),
+            config.reportOutputs().runOnlineJunit()
+        );
+        assertEquals(
+            tempDir.resolve("results").resolve("{scenario}-{timestamp}-run-offline-report.json").toAbsolutePath().normalize(),
+            config.reportOutputs().runOfflineJson()
+        );
+        assertEquals(
+            tempDir.resolve("results").resolve("{scenario}-{timestamp}-run-offline-junit.xml").toAbsolutePath().normalize(),
+            config.reportOutputs().runOfflineJunit()
+        );
+    }
+
+    @Test
     void resolveInputFilesFailsClearlyWhenInputFolderMissingInConfig(@TempDir Path tempDir) throws IOException {
         Files.createDirectory(tempDir.resolve("expected"));
         Path configFile = tempDir.resolve("scenario.yaml");

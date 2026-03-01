@@ -144,6 +144,44 @@ class FixReplayCliTest {
     }
 
     @Test
+    void runOfflineUsesScenarioReportOutputDefaultsWhenCliPathsMissing(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected"));
+        Path actual = Files.createDirectory(tempDir.resolve("actual"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Path reportsDir = tempDir.resolve("reports");
+
+        Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
+        Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
+        Files.writeString(actual.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=AAPL|10=021|\n");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "actualFolder: actual",
+                "reports:",
+                "  folder: reports"
+            ) + "\n"
+        );
+
+        int exitCode = FixReplayCli.newCommandLine().execute(
+            "run-offline",
+            "--scenario",
+            scenario.toString()
+        );
+
+        assertEquals(2, exitCode);
+        Path reportOut = findSingleFile(reportsDir, "scenario-\\d{8}-\\d{9}-run-offline-report\\.json");
+        Path junitOut = findSingleFile(reportsDir, "scenario-\\d{8}-\\d{9}-run-offline-junit\\.xml");
+        assertTrue(Files.exists(reportOut));
+        assertTrue(Files.exists(junitOut));
+        JsonNode json = JSON.readTree(Files.readString(reportOut));
+        assertTrue(json.path("diffReport").path("failedMessages").asInt() >= 1);
+    }
+
+    @Test
     void runOfflineReturnsConfigErrorForMissingScenario(@TempDir Path tempDir) {
         int exitCode = FixReplayCli.newCommandLine().execute(
             "run-offline",
@@ -199,6 +237,49 @@ class FixReplayCliTest {
         assertTrue(Files.exists(junit));
         assertEquals(1, ScriptedTransport.connectCalls.get());
         assertEquals("value", ScriptedTransport.lastProperties.get("custom"));
+    }
+
+    @Test
+    void runOnlineUsesScenarioReportOutputDefaultsWhenCliPathsMissing(@TempDir Path tempDir) throws IOException {
+        Path input = Files.createDirectory(tempDir.resolve("input"));
+        Path expected = Files.createDirectory(tempDir.resolve("expected"));
+        Path scenario = tempDir.resolve("scenario.yaml");
+        Path reportsDir = tempDir.resolve("reports");
+
+        Files.writeString(input.resolve("BUY_SELL.in"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=001|\n");
+        Files.writeString(expected.resolve("BUY_SELL.out"), "8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=011|\n");
+        Files.writeString(
+            scenario,
+            String.join(
+                "\n",
+                "inputFolder: input",
+                "expectedFolder: expected",
+                "reports:",
+                "  folder: reports"
+            ) + "\n"
+        );
+
+        ScriptedTransport.reset(List.of(FixMessage.fromRaw("8=FIX.4.4|35=D|11=ORD-1|55=MSFT|10=099|", '|')));
+
+        int exitCode = FixReplayCli.newCommandLine().execute(
+            "run-online",
+            "--scenario",
+            scenario.toString(),
+            "--transport-class",
+            ScriptedTransport.class.getName(),
+            "--receive-timeout-ms",
+            "500",
+            "--queue-capacity",
+            "8"
+        );
+
+        assertEquals(0, exitCode);
+        Path reportOut = findSingleFile(reportsDir, "scenario-\\d{8}-\\d{9}-run-online-report\\.json");
+        Path junitOut = findSingleFile(reportsDir, "scenario-\\d{8}-\\d{9}-run-online-junit\\.xml");
+        assertTrue(Files.exists(reportOut));
+        assertTrue(Files.exists(junitOut));
+        JsonNode json = JSON.readTree(Files.readString(reportOut));
+        assertTrue(json.path("passed").asBoolean());
     }
 
     @Test
@@ -595,5 +676,17 @@ class FixReplayCliTest {
             }
         }
         return false;
+    }
+
+    private static Path findSingleFile(Path directory, String nameRegex) throws IOException {
+        List<Path> matches;
+        try (var files = Files.list(directory)) {
+            matches = files
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().matches(nameRegex))
+                .toList();
+        }
+        assertEquals(1, matches.size(), "Expected exactly one match in " + directory + " for " + nameRegex);
+        return matches.get(0);
     }
 }

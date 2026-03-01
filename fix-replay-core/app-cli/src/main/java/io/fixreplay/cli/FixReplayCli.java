@@ -27,6 +27,8 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -61,6 +63,7 @@ public final class FixReplayCli implements Callable<Integer> {
     private static final int EXIT_CONFIG_ERROR = 3;
     private static final String DEFAULT_ARTIO_TRANSPORT_CLASS = "io.fixreplay.adapter.artio.ArtioFixTransport";
     private static final long SIMULATOR_READY_POLL_INTERVAL_MS = 25L;
+    private static final DateTimeFormatter REPORT_TIMESTAMP_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmssSSS");
     private static final ObjectMapper JSON = new ObjectMapper().enable(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
 
     @Override
@@ -214,16 +217,33 @@ public final class FixReplayCli implements Callable<Integer> {
         @Option(names = "--scenario", required = true, description = "Scenario YAML/JSON")
         private Path scenarioPath;
 
-        @Option(names = "--out", description = "Write report JSON to this file (default: stdout)")
+        @Option(
+            names = "--out",
+            description = "Write report JSON to this file (default: stdout or scenario.reports.run_offline_json; supports {scenario}/{timestamp})"
+        )
         private Path out;
 
-        @Option(names = "--junit", description = "Optional JUnit XML output path")
+        @Option(
+            names = "--junit",
+            description = "Optional JUnit XML output path (default: scenario.reports.run_offline_junit when configured; supports {scenario}/{timestamp})"
+        )
         private Path junitOut;
 
         @Override
         public Integer call() {
             try {
                 ScenarioConfig scenarioConfig = ScenarioConfig.load(scenarioPath);
+                String reportTimestamp = REPORT_TIMESTAMP_FORMAT.format(LocalDateTime.now());
+                Path effectiveOut = resolveReportPath(
+                    out != null ? out : scenarioConfig.reportOutputs().runOfflineJson(),
+                    scenarioPath,
+                    reportTimestamp
+                );
+                Path effectiveJunitOut = resolveReportPath(
+                    junitOut != null ? junitOut : scenarioConfig.reportOutputs().runOfflineJunit(),
+                    scenarioPath,
+                    reportTimestamp
+                );
                 OfflineRunResult result = new OfflineRunner().run(scenarioConfig);
 
                 DiffReport effectiveDiff = withOperationalFailures(
@@ -237,13 +257,13 @@ public final class FixReplayCli implements Callable<Integer> {
                 );
                 Map<String, Object> report = buildOfflineOutput(result, effectiveDiff);
 
-                if (out != null) {
-                    writeJson(out, report);
+                if (effectiveOut != null) {
+                    writeJson(effectiveOut, report);
                 } else {
                     printJson(report);
                 }
-                if (junitOut != null) {
-                    writeText(junitOut, effectiveDiff.toJUnitXml("run-offline"));
+                if (effectiveJunitOut != null) {
+                    writeText(effectiveJunitOut, effectiveDiff.toJUnitXml("run-offline"));
                 }
                 return result.passed() ? EXIT_OK : EXIT_COMPARE_FAIL;
             } catch (IOException | IllegalArgumentException runFailure) {
@@ -284,10 +304,16 @@ public final class FixReplayCli implements Callable<Integer> {
         @Option(names = "--queue-capacity", defaultValue = "1024", description = "Online receive queue capacity")
         private int queueCapacity;
 
-        @Option(names = "--out", description = "Write report JSON to this file (default: stdout)")
+        @Option(
+            names = "--out",
+            description = "Write report JSON to this file (default: stdout or scenario.reports.run_online_json; supports {scenario}/{timestamp})"
+        )
         private Path out;
 
-        @Option(names = "--junit", defaultValue = "junit.xml", description = "JUnit XML output path")
+        @Option(
+            names = "--junit",
+            description = "JUnit XML output path (default: scenario.reports.run_online_junit, else junit.xml; supports {scenario}/{timestamp})"
+        )
         private Path junitOut;
 
         @Option(
@@ -319,6 +345,23 @@ public final class FixReplayCli implements Callable<Integer> {
                 }
 
                 ScenarioConfig scenarioConfig = ScenarioConfig.load(scenarioPath);
+                String reportTimestamp = REPORT_TIMESTAMP_FORMAT.format(LocalDateTime.now());
+                Path effectiveOut = resolveReportPath(
+                    out != null ? out : scenarioConfig.reportOutputs().runOnlineJson(),
+                    scenarioPath,
+                    reportTimestamp
+                );
+                Path effectiveJunitOut = resolveReportPath(
+                    junitOut != null
+                        ? junitOut
+                        : (
+                            scenarioConfig.reportOutputs().runOnlineJunit() != null
+                                ? scenarioConfig.reportOutputs().runOnlineJunit()
+                                : Path.of("junit.xml")
+                        ),
+                    scenarioPath,
+                    reportTimestamp
+                );
                 String effectiveTransportClassName = resolveTransportClassName(transportClassName, startSimulator, scenarioConfig);
                 Map<String, String> mergedTransportProperties = mergeTransportProperties(transportConfigFile, transportProperties);
                 mergedTransportProperties = applyScenarioInitiatorTransportDefaults(scenarioConfig, mergedTransportProperties);
@@ -458,12 +501,12 @@ public final class FixReplayCli implements Callable<Integer> {
                 report.put("diffReport", parseJson(diffReport.toJson()));
                 report.put("linkReports", linkReports);
 
-                if (out != null) {
-                    writeJson(out, report);
+                if (effectiveOut != null) {
+                    writeJson(effectiveOut, report);
                 } else {
                     printJson(report);
                 }
-                writeText(junitOut, diffReport.toJUnitXml("run-online"));
+                writeText(effectiveJunitOut, diffReport.toJUnitXml("run-online"));
 
                 return overallPass ? EXIT_OK : EXIT_COMPARE_FAIL;
             } catch (IOException | ReflectiveOperationException | IllegalArgumentException runFailure) {
@@ -847,6 +890,7 @@ public final class FixReplayCli implements Callable<Integer> {
             .sessionMappingRules(base.sessionMappingRules())
             .sessions(base.sessions())
             .simulator(base.simulator())
+            .reportOutputs(base.reportOutputs())
             .scenarioBaseDirectory(base.scenarioBaseDirectory());
         if (base.hasCacheFolder()) {
             builder.cacheFolder(base.cacheFolder());
@@ -917,6 +961,27 @@ public final class FixReplayCli implements Callable<Integer> {
 
     private static String sanitizeFilePart(String value) {
         return value.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private static Path resolveReportPath(Path rawPath, Path scenarioPath, String timestamp) {
+        if (rawPath == null) {
+            return null;
+        }
+        String scenarioName = sanitizeFilePart(scenarioName(scenarioPath));
+        String resolved = rawPath
+            .toString()
+            .replace("{scenario}", scenarioName)
+            .replace("{timestamp}", Objects.requireNonNull(timestamp, "timestamp"));
+        return Path.of(resolved).toAbsolutePath().normalize();
+    }
+
+    private static String scenarioName(Path scenarioPath) {
+        String fileName = scenarioPath.getFileName().toString();
+        int dot = fileName.lastIndexOf('.');
+        if (dot <= 0) {
+            return fileName;
+        }
+        return fileName.substring(0, dot);
     }
 
     private static SessionKey reverseSession(SessionKey session) {

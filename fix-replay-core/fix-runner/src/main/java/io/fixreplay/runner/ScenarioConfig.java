@@ -34,6 +34,7 @@ public final class ScenarioConfig {
     private final Simulator simulator;
     private final Path cacheFolder;
     private final Path scenarioBaseDirectory;
+    private final ReportOutputs reportOutputs;
 
     private ScenarioConfig(
         Path inputFolder,
@@ -46,7 +47,8 @@ public final class ScenarioConfig {
         Sessions sessions,
         Simulator simulator,
         Path cacheFolder,
-        Path scenarioBaseDirectory
+        Path scenarioBaseDirectory,
+        ReportOutputs reportOutputs
     ) {
         this.inputFolder = inputFolder;
         this.expectedFolder = expectedFolder;
@@ -59,6 +61,7 @@ public final class ScenarioConfig {
         this.simulator = Objects.requireNonNull(simulator, "simulator");
         this.cacheFolder = cacheFolder;
         this.scenarioBaseDirectory = Objects.requireNonNull(scenarioBaseDirectory, "scenarioBaseDirectory");
+        this.reportOutputs = Objects.requireNonNull(reportOutputs, "reportOutputs");
     }
 
     public static Builder builder() {
@@ -87,6 +90,9 @@ public final class ScenarioConfig {
         }
         if (spec.cacheFolder != null && !spec.cacheFolder.isBlank()) {
             builder.cacheFolder(resolvePath(base, spec.cacheFolder));
+        }
+        if (spec.reports != null) {
+            builder.reportOutputs(toReportOutputs(spec.reports, base));
         }
 
         if (spec.msgTypeFilter != null && !spec.msgTypeFilter.isEmpty()) {
@@ -170,6 +176,10 @@ public final class ScenarioConfig {
 
     public boolean hasActualFolder() {
         return actualFolder != null;
+    }
+
+    public ReportOutputs reportOutputs() {
+        return reportOutputs;
     }
 
     public Map<SessionKey, Path> resolveInputFiles() throws IOException {
@@ -385,6 +395,35 @@ public final class ScenarioConfig {
         return new SimulatorArtioPerformance(spec.inboundFragmentLimit, spec.outboundFragmentLimit, trimToNull(spec.idleStrategy));
     }
 
+    private static ReportOutputs toReportOutputs(ReportOutputsSpec spec, Path base) {
+        if (spec == null) {
+            return ReportOutputs.defaults();
+        }
+        Path folder = resolveOptionalPath(base, spec.folder);
+        Path runOnlineJson = resolveReportOutputPath(base, folder, spec.runOnlineJson, "{scenario}-{timestamp}-run-online-report.json");
+        Path runOnlineJunit = resolveReportOutputPath(base, folder, spec.runOnlineJunit, "{scenario}-{timestamp}-run-online-junit.xml");
+        Path runOfflineJson = resolveReportOutputPath(base, folder, spec.runOfflineJson, "{scenario}-{timestamp}-run-offline-report.json");
+        Path runOfflineJunit = resolveReportOutputPath(base, folder, spec.runOfflineJunit, "{scenario}-{timestamp}-run-offline-junit.xml");
+        return new ReportOutputs(folder, runOnlineJson, runOnlineJunit, runOfflineJson, runOfflineJunit);
+    }
+
+    private static Path resolveReportOutputPath(Path base, Path folder, String configuredPath, String defaultName) {
+        if (configuredPath != null && !configuredPath.isBlank()) {
+            Path raw = Path.of(configuredPath);
+            if (raw.isAbsolute()) {
+                return raw.normalize();
+            }
+            if (folder != null) {
+                return folder.resolve(raw).normalize();
+            }
+            return base.resolve(raw).normalize();
+        }
+        if (folder == null) {
+            return null;
+        }
+        return folder.resolve(defaultName).normalize();
+    }
+
     private static Path resolveOptionalPath(Path base, String rawPath) {
         if (rawPath == null || rawPath.isBlank()) {
             return null;
@@ -412,6 +451,7 @@ public final class ScenarioConfig {
         private Simulator simulator = Simulator.disabled();
         private Path cacheFolder;
         private Path scenarioBaseDirectory = Path.of(".").toAbsolutePath().normalize();
+        private ReportOutputs reportOutputs = ReportOutputs.defaults();
 
         public Builder inputFolder(Path inputFolder) {
             this.inputFolder = inputFolder;
@@ -468,6 +508,11 @@ public final class ScenarioConfig {
             return this;
         }
 
+        public Builder reportOutputs(ReportOutputs reportOutputs) {
+            this.reportOutputs = Objects.requireNonNull(reportOutputs, "reportOutputs");
+            return this;
+        }
+
         public ScenarioConfig build() {
             return new ScenarioConfig(
                 inputFolder,
@@ -480,7 +525,8 @@ public final class ScenarioConfig {
                 sessions,
                 simulator,
                 cacheFolder,
-                scenarioBaseDirectory
+                scenarioBaseDirectory,
+                reportOutputs
             );
         }
     }
@@ -517,6 +563,18 @@ public final class ScenarioConfig {
     public record SessionIdentity(String senderCompId, String targetCompId, String host, Integer port) {
         static SessionIdentity empty() {
             return new SessionIdentity(null, null, null, null);
+        }
+    }
+
+    public record ReportOutputs(
+        Path folder,
+        Path runOnlineJson,
+        Path runOnlineJunit,
+        Path runOfflineJson,
+        Path runOfflineJunit
+    ) {
+        static ReportOutputs defaults() {
+            return new ReportOutputs(null, null, null, null, null);
         }
     }
 
@@ -677,6 +735,7 @@ public final class ScenarioConfig {
         public List<SessionMappingRuleSpec> sessionMappingRules;
         public SessionsSpec sessions;
         public IoSpec io;
+        public ReportOutputsSpec reports;
         public SimulatorSpec simulator;
         @JsonAlias({"mutation"})
         public MutationSpec topLevelMutation;
@@ -802,6 +861,23 @@ public final class ScenarioConfig {
 
     static final class IoSpec {
         public String mode;
+    }
+
+    static final class ReportOutputsSpec {
+        @JsonAlias({"output_folder", "report_folder"})
+        public String folder;
+
+        @JsonAlias({"run_online_report", "run_online_json", "online_report_json", "online_json"})
+        public String runOnlineJson;
+
+        @JsonAlias({"run_online_junit", "online_junit"})
+        public String runOnlineJunit;
+
+        @JsonAlias({"run_offline_report", "run_offline_json", "offline_report_json", "offline_json"})
+        public String runOfflineJson;
+
+        @JsonAlias({"run_offline_junit", "offline_junit"})
+        public String runOfflineJunit;
     }
 
     static final class SessionsSpec {

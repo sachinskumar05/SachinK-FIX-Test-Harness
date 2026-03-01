@@ -46,7 +46,12 @@ Default endpoints:
 
 ## CI
 
-GitLab CI validates compilation and tests via `.gitlab-ci.yml`.
+GitLab CI validates compilation/tests and runs the sample online scenario via `.gitlab-ci.yml`.
+
+Pipeline artifacts are uploaded with `when: always` so they remain browsable whether jobs pass or fail:
+- Gradle test reports and test-results XML
+- `results/**` (online/offline JSON + JUnit + console log, named as `<scenario>-<yyyyMMdd-HHmmssSSS>-...`)
+- `test-suites/**/.simulator-artio/logs/**`
 
 ## Simulator (Artio)
 

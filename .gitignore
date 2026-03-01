@@ -24,6 +24,8 @@ dist/
 
 # FIX replay runtime/results
 fix-replay-core/test-suites/**/.simulator-artio/
+fix-replay-core/test-suites/**/results/
+fix-replay-core/results/
 fix-replay-core/test-suites/**/run-online-report.json
 fix-replay-core/test-suites/**/run-online-junit.xml
 fix-replay-core/test-suites/**/run-offline-report.json

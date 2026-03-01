@@ -1,6 +1,14 @@
 input_folder: "./input"
 expected_folder: "./expected"
 
+reports:
+  # Tokens supported in report filenames: {scenario}, {timestamp}
+  folder: "../../results"
+  run_online_json: "{scenario}-{timestamp}-run-online-report.json"
+  run_online_junit: "{scenario}-{timestamp}-run-online-junit.xml"
+  run_offline_json: "{scenario}-{timestamp}-run-offline-report.json"
+  run_offline_junit: "{scenario}-{timestamp}-run-offline-junit.xml"
+
 io:
   mode: "online"
 

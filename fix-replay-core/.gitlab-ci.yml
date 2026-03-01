@@ -4,5 +4,26 @@ stages:
 verify:
   stage: verify
   image: eclipse-temurin:17
+  variables:
+    GRADLE_OPTS: "-Dorg.gradle.daemon=false"
   script:
     - ./gradlew --no-daemon clean test
+    - SCENARIO_PATH="../test-suites/scenario-sample/scenario-simple1.yml"
+    - SCENARIO_NAME="$(basename "${SCENARIO_PATH}")"
+    - SCENARIO_NAME="${SCENARIO_NAME%.*}"
+    - TIMESTAMP="$(date +%Y%m%d-%H%M%S%3N)"
+    - mkdir -p results
+    - ./gradlew --no-daemon :app-cli:run --args="run-online --scenario ${SCENARIO_PATH} --start-simulator" > "results/${SCENARIO_NAME}-${TIMESTAMP}-run-online-console.log" 2>&1
+  artifacts:
+    when: always
+    expire_in: 2 weeks
+    reports:
+      junit:
+        - "**/build/test-results/test/*.xml"
+        - "results/*-junit.xml"
+    paths:
+      - "**/build/reports/**"
+      - "**/build/test-results/**"
+      - "results/**"
+      - "test-suites/**/.simulator-artio/logs/**"
+      - "test-suites/**/.simulator-artio/*error*.log"
