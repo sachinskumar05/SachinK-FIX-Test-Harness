@@ -13,6 +13,7 @@
 .DS_Store
 
 # Build Output
+.gradle/
 bin/
 out/
 build/
@@ -21,6 +22,9 @@ node_modules/
 dist/
 *.class
 .simulator*
+
+# Kiro AI Assistant (all files and folders)
+.kiro/
 
 # FIX replay runtime/results
 fix-replay-core/test-suites/**/.simulator-artio/
