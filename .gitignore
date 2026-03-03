@@ -26,6 +26,15 @@ dist/
 # Kiro AI Assistant (all files and folders)
 .kiro/
 
+# SSL Certificates (local only, not for CI)
+fix-replay-core/certs/
+*.cer
+*.crt
+*.pem
+*.jks
+*.p12
+*.pfx
+
 # FIX replay runtime/results
 fix-replay-core/test-suites/**/.simulator-artio/
 fix-replay-core/test-suites/**/results/

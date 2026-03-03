@@ -24,6 +24,24 @@ Reusable FIX replay engine designed for:
 ./gradlew test
 ```
 
+### Corporate Network / SSL Certificate Issues
+
+If you're behind a corporate proxy or firewall and encounter SSL certificate errors:
+
+```
+PKIX path building failed: unable to find valid certification path to requested target
+```
+
+**Quick Fix:**
+1. Run the setup script: `cd fix-replay-core && setup-cert.bat`
+2. Follow the prompts to import your corporate certificate
+3. Edit `gradle.properties` to enable the custom truststore
+4. Run `./gradlew clean build`
+
+See [setup-ssl-cert.md](fix-replay-core/setup-ssl-cert.md) for detailed instructions.
+
+**Note:** Certificate files are in `.gitignore` and won't affect GitLab CI builds.
+
 ## CLI
 
 ```bash
